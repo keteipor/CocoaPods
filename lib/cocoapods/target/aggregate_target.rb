@@ -222,7 +222,7 @@ module Pod
       !framework_paths_by_config.values.all?(&:empty?)
     end
 
-    # @return [Hash{String => Array<Hash{Symbol => [String]}>}] The vendored dynamic artifacts and framework target
+    # @return [Hash{String => Array<Framework>}] The vendored dynamic artifacts and framework target
     #         input and output paths grouped by config
     #
     def framework_paths_by_config

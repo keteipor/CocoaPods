@@ -78,14 +78,15 @@ module Pod
             framework_paths = target.dependent_targets_for_test_spec(test_spec).flat_map do |dependent_target|
               spec_paths_to_include = dependent_target.non_test_specs.map(&:name)
               spec_paths_to_include << test_spec.name if dependent_target == target
-              dependent_target.framework_paths.values_at(*spec_paths_to_include).flatten.compact.uniq
-            end
+              dependent_target.framework_paths.values_at(*spec_paths_to_include).flatten.compact
+            end.uniq
             input_paths = []
             output_paths = []
             unless framework_paths.empty?
-              input_paths = [script_path, *framework_paths.flat_map { |fw| [fw[:input_path], fw[:dsym_input_path]] }.compact]
-              output_paths = framework_paths.flat_map { |fw| [fw[:output_path], fw[:dsym_output_path]] }.compact
+              input_paths = [script_path, *framework_paths.flat_map { |fw| [fw.source_path, fw.dsym_path] }.compact]
+              output_paths = UserProjectIntegrator::TargetIntegrator.framework_output_paths(framework_paths)
             end
+
             UserProjectIntegrator::TargetIntegrator.validate_input_output_path_limit(input_paths, output_paths)
             UserProjectIntegrator::TargetIntegrator.create_or_update_embed_frameworks_script_phase_to_target(native_target, script_path, input_paths, output_paths)
           end

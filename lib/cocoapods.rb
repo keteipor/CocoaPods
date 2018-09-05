@@ -43,6 +43,7 @@ module Pod
   autoload :Deintegrator,              'cocoapods_deintegrate'
   autoload :Executable,                'cocoapods/executable'
   autoload :ExternalSources,           'cocoapods/external_sources'
+  autoload :Framework,                 'cocoapods/target/framework'
   autoload :Installer,                 'cocoapods/installer'
   autoload :HooksManager,              'cocoapods/hooks_manager'
   autoload :PodTarget,                 'cocoapods/target/pod_target'
