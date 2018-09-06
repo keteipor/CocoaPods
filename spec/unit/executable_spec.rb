@@ -12,6 +12,8 @@ module Pod
 
     it 'should support spaces in the full path of the command' do
       cmd = '/Spa ces/are"/fun/false'
+      require 'open3'
+      Executable.expects(:require).with('open3')
       File.expects(:file?).with(cmd).returns(true)
       File.expects(:executable?).with(cmd).returns(true)
       result = mock
@@ -71,6 +73,13 @@ module Pod
       RB
       Executable.execute_command('ruby', cmd, true)
       io.should == " 0\n 1\n 2\n"
+    end
+
+    it 'shows the name in the error message when the command was not found' do
+      e = lambda do
+        Executable.execute_command('___notfound___', [], true)
+      end.should.raise Informative
+      e.message.should.match /___notfound___/
     end
 
     describe Executable::Indenter do

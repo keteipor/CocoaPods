@@ -4,13 +4,13 @@ module Pod
   describe Generator::ModuleMap do
     before do
       spec = fixture_spec('banana-lib/BananaLib.podspec')
-      target_definition = Podfile::TargetDefinition.new(:default, nil)
-      @pod_target = PodTarget.new([spec], [target_definition], config.sandbox)
+      @pod_target = PodTarget.new(config.sandbox, false, {}, [], Platform.ios, [spec], [fixture_target_definition])
       @gen = Generator::ModuleMap.new(@pod_target)
     end
 
     it 'writes the module map to the disk' do
       path = temporary_directory + 'BananaLib.modulemap'
+      @pod_target.stubs(:requires_frameworks?).returns(true)
       @gen.save_as(path)
       path.read.should == <<-EOS.strip_heredoc
         framework module BananaLib {
@@ -22,16 +22,32 @@ module Pod
       EOS
     end
 
-    it 'correctly adds private headers' do
-      @gen.stubs(:private_headers).returns(['Private.h'])
-      @gen.generate.should == <<-EOS.strip_heredoc
-        framework module BananaLib {
+    it 'writes the module map to the disk for a library' do
+      path = temporary_directory + 'BananaLib.modulemap'
+      @pod_target.stubs(:requires_frameworks?).returns(false)
+      @gen.save_as(path)
+      path.read.should == <<-EOS.strip_heredoc
+        module BananaLib {
           umbrella header "BananaLib-umbrella.h"
 
           export *
           module * { export * }
+        }
+      EOS
+    end
 
-          private header "Private.h"
+    it 'escapes double quotes properly for module map contents' do
+      path = temporary_directory + 'BananaLib.modulemap'
+      @pod_target.stubs(:umbrella_header_path).returns(Pathname.new('BananaLibWith"Quotes"-umbrella.h'))
+      @pod_target.stubs(:requires_frameworks?).returns(true)
+      gen = Generator::ModuleMap.new(@pod_target)
+      gen.save_as(path)
+      path.read.should == <<-EOS.strip_heredoc
+        framework module BananaLib {
+          umbrella header "BananaLibWith\\"Quotes\\"-umbrella.h"
+
+          export *
+          module * { export * }
         }
       EOS
     end

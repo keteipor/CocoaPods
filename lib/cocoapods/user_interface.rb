@@ -1,13 +1,14 @@
 require 'cocoapods/user_interface/error_report'
+require 'cocoapods/user_interface/inspector_reporter'
 
 module Pod
   # Provides support for UI output. It provides support for nested sections of
   # information and for a verbose mode.
   #
   module UserInterface
-    require 'colored'
+    require 'colored2'
 
-    @title_colors      =  %w(    yellow green    )
+    @title_colors      =  %w( yellow green )
     @title_level       =  0
     @indentation_level =  2
     @treat_titles_as_messages = false
@@ -19,6 +20,10 @@ module Pod
       attr_accessor :indentation_level
       attr_accessor :title_level
       attr_accessor :warnings
+
+      # @return [IO] IO object to which UI output will be directed.
+      #
+      attr_accessor :output_io
 
       # @return [Bool] Whether the wrapping of the strings to the width of the
       #         terminal should be disabled.
@@ -57,6 +62,7 @@ module Pod
         self.indentation_level += relative_indentation
         self.title_level += 1
         yield if block_given?
+      ensure
         self.indentation_level -= relative_indentation
         self.title_level -= 1
       end
@@ -78,6 +84,7 @@ module Pod
         self.indentation_level += relative_indentation
         self.title_level += 1
         yield if block_given?
+      ensure
         self.indentation_level -= relative_indentation
         self.title_level -= 1
       end
@@ -109,12 +116,10 @@ module Pod
         self.indentation_level += relative_indentation
         self.title_level += 1
         yield if block_given?
+      ensure
         self.indentation_level -= relative_indentation
         self.title_level -= 1
       end
-
-      # def title(title, verbose_prefix = '', relative_indentation = 2)
-      # end
 
       # Prints a verbose message taking an optional verbose prefix and
       # a relative indentation valid for the UI action in the passed
@@ -138,6 +143,7 @@ module Pod
 
         self.indentation_level += relative_indentation
         yield if block_given?
+      ensure
         self.indentation_level -= relative_indentation
       end
 
@@ -158,6 +164,7 @@ module Pod
         self.indentation_level += 2
         @treat_titles_as_messages = true
         yield if block_given?
+      ensure
         @treat_titles_as_messages = false
         self.indentation_level -= 2
       end
@@ -183,7 +190,11 @@ module Pod
         if pathname
           from_path = config.podfile_path.dirname if config.podfile_path
           from_path ||= Pathname.pwd
-          path = Pathname(pathname).relative_path_from(from_path)
+          path = begin
+                   Pathname(pathname).relative_path_from(from_path)
+                 rescue
+                   pathname
+                 end
           "`#{path}`"
         else
           ''
@@ -203,7 +214,7 @@ module Pod
           puts_indented "#{set.name} #{set.versions.first.version}"
         else
           pod = Specification::Set::Presenter.new(set)
-          title = "\n-> #{pod.name} (#{pod.version})"
+          title = "-> #{pod.name} (#{pod.version})"
           if pod.spec.deprecated?
             title += " #{pod.deprecation_description}"
             colored_title = title.red
@@ -298,14 +309,14 @@ module Pod
       #
       def choose_from_array(array, message)
         array.each_with_index do |item, index|
-          UI.puts "#{ index + 1 }: #{ item }"
+          UI.puts "#{index + 1}: #{item}"
         end
 
         UI.puts message
 
         index = UI.gets.chomp.to_i - 1
         if index < 0 || index > array.count - 1
-          raise Informative, "#{ index + 1 } is invalid [1-#{ array.count }]"
+          raise Informative, "#{index + 1} is invalid [1-#{array.count}]"
         else
           index
         end
@@ -322,7 +333,12 @@ module Pod
       #        The message to print.
       #
       def puts(message = '')
-        STDOUT.puts(message) unless config.silent?
+        return if config.silent?
+        begin
+          (output_io || STDOUT).puts(message)
+        rescue Errno::EPIPE
+          exit 0
+        end
       end
 
       # prints a message followed by a new line unless config is silent.
@@ -331,7 +347,12 @@ module Pod
       #        The message to print.
       #
       def print(message)
-        STDOUT.print(message) unless config.silent?
+        return if config.silent?
+        begin
+          (output_io || STDOUT).print(message)
+        rescue Errno::EPIPE
+          exit 0
+        end
       end
 
       # gets input from $stdin
@@ -352,6 +373,21 @@ module Pod
       #
       def warn(message, actions = [], verbose_only = false)
         warnings << { :message => message, :actions => actions, :verbose_only => verbose_only }
+      end
+
+      # Pipes all output inside given block to a pager.
+      #
+      # @yield Code block in which inputs to {#puts} and {#print} methods will be printed to the piper.
+      #
+      def with_pager
+        prev_handler = Signal.trap('INT', 'IGNORE')
+        IO.popen((ENV['PAGER'] || 'less -R'), 'w') do |io|
+          UI.output_io = io
+          yield
+        end
+      ensure
+        Signal.trap('INT', prev_handler)
+        UI.output_io = nil
       end
 
       private
@@ -393,6 +429,10 @@ module Pod
     class << self
       def puts(message)
         UI.puts message
+      end
+
+      def print(message)
+        UI.print(message)
       end
 
       def warn(message)

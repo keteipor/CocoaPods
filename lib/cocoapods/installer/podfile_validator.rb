@@ -12,13 +12,23 @@ module Pod
       #
       attr_reader :errors
 
+      # @return [Array<String>] any warnings that have occured during the validation
+      #
+      attr_reader :warnings
+
       # Initialize a new instance
+      #
       # @param [Podfile] podfile
       #        The podfile to validate
       #
-      def initialize(podfile)
+      # @param [Analyzer::PodfileDependencyCache] podfile_dependency_cache
+      #        An (optional) cache of all the dependencies in the podfile
+      #
+      def initialize(podfile, podfile_dependency_cache = Analyzer::PodfileDependencyCache.from_podfile(podfile))
         @podfile = podfile
+        @podfile_dependency_cache = podfile_dependency_cache
         @errors = []
+        @warnings = []
         @validated = false
       end
 
@@ -27,6 +37,9 @@ module Pod
       #
       def validate
         validate_pod_directives
+        validate_no_abstract_only_pods!
+        validate_dependencies_are_present!
+        validate_no_duplicate_targets!
 
         @validated = true
       end
@@ -38,7 +51,7 @@ module Pod
       def valid?
         validate unless @validated
 
-        @validated && errors.size == 0
+        @validated && errors.empty?
       end
 
       # A message describing any errors in the
@@ -54,12 +67,12 @@ module Pod
         errors << error
       end
 
-      def validate_pod_directives
-        dependencies = podfile.target_definitions.flat_map do |_, target|
-          target.dependencies
-        end.uniq
+      def add_warning(warning)
+        warnings << warning
+      end
 
-        dependencies.each do |dependency|
+      def validate_pod_directives
+        @podfile_dependency_cache.podfile_dependencies.each do |dependency|
           validate_conflicting_external_sources!(dependency)
         end
       end
@@ -79,6 +92,46 @@ module Pod
         if pod_spec_or_path && specified_downloaders.size > 0
           add_error "The dependency `#{dependency.name}` specifies `podspec` or `path` in combination with other" \
             ' download strategies. This is not allowed'
+        end
+      end
+
+      # Warns the user if the podfile is empty.
+      #
+      # @note   The workspace is created in any case and all the user projects
+      #         are added to it, however the projects are not integrated as
+      #         there is no way to discern between target definitions which are
+      #         empty and target definitions which just serve the purpose to
+      #         wrap other ones. This is not an issue because empty target
+      #         definitions generate empty libraries.
+      #
+      # @return [void]
+      #
+      def validate_dependencies_are_present!
+        if @podfile_dependency_cache.target_definition_list.all?(&:empty?)
+          add_warning 'The Podfile does not contain any dependencies.'
+        end
+      end
+
+      # Verifies that no dependencies in the Podfile will end up not being built
+      # at all. In other words, all dependencies _must_ belong to a non-abstract
+      # target, or be inherited by a target where `inheritance == complete`.
+      #
+      def validate_no_abstract_only_pods!
+        all_dependencies = @podfile_dependency_cache.podfile_dependencies
+        concrete_dependencies = @podfile_dependency_cache.target_definition_list.reject(&:abstract?).flat_map { |td| @podfile_dependency_cache.target_definition_dependencies(td) }
+        abstract_only_dependencies = all_dependencies - concrete_dependencies
+        abstract_only_dependencies.each do |dep|
+          add_error "The dependency `#{dep}` is not used in any concrete target."
+        end
+      end
+
+      def validate_no_duplicate_targets!
+        @podfile_dependency_cache.target_definition_list.group_by { |td| [td.name, td.user_project_path] }.
+          each do |(name, project), definitions|
+          next unless definitions.size > 1
+          error = "The target `#{name}` is declared twice"
+          error << " for the project `#{project}`" if project
+          add_error(error << '.')
         end
       end
     end

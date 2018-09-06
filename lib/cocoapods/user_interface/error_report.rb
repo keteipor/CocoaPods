@@ -2,6 +2,7 @@
 
 require 'rbconfig'
 require 'cgi'
+require 'gh_inspector'
 
 module Pod
   module UserInterface
@@ -18,28 +19,9 @@ module Pod
 #{original_command}
 ```
 
-### Report
+#{report_instructions}
 
-* What did you do?
-
-* What did you expect to happen?
-
-* What happened instead?
-
-
-### Stack
-
-```
-   CocoaPods : #{Pod::VERSION}
-        Ruby : #{RUBY_DESCRIPTION}
-    RubyGems : #{Gem::VERSION}
-        Host : #{host_information}
-       Xcode : #{xcode_information}
-         Git : #{git_information}
-Ruby lib dir : #{RbConfig::CONFIG['libdir']}
-Repositories : #{repo_information.join("\n               ")}
-```
-
+#{stack}
 ### Plugins
 
 ```
@@ -50,7 +32,7 @@ Repositories : #{repo_information.join("\n               ")}
 
 ```
 #{exception.class} - #{exception.message}
-#{exception.backtrace.join("\n")}
+#{exception.backtrace.join("\n") if exception.backtrace}
 ```
 
 #{'――― TEMPLATE END ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――'.reversed}
@@ -71,16 +53,52 @@ Don't forget to anonymize any private data!
 EOS
         end
 
-        private
+        def report_instructions
+          <<-EOS
+### Report
 
-        def `(other)
-          super
-        rescue Errno::ENOENT => e
-          "Unable to find an executable (#{e})"
+* What did you do?
+
+* What did you expect to happen?
+
+* What happened instead?
+EOS
         end
 
-        def pathless_exception_message(message)
-          message.gsub(/- \(.*\):/, '-')
+        def stack
+          parts = {
+            'CocoaPods' => Pod::VERSION,
+            'Ruby' => RUBY_DESCRIPTION,
+            'RubyGems' => Gem::VERSION,
+            'Host' => host_information,
+            'Xcode' => xcode_information,
+            'Git' => git_information,
+            'Ruby lib dir' => RbConfig::CONFIG['libdir'],
+            'Repositories' => repo_information,
+          }
+          justification = parts.keys.map(&:size).max
+
+          str = <<-EOS
+### Stack
+
+```
+EOS
+          parts.each do |name, value|
+            str << name.rjust(justification)
+            str << ' : '
+            str << Array(value).join("\n" << (' ' * (justification + 3)))
+            str << "\n"
+          end
+
+          str << "```\n"
+        end
+
+        def plugins_string
+          plugins = installed_plugins
+          max_name_length = plugins.keys.map(&:length).max
+          plugins.map do |name, version|
+            "#{name.ljust(max_name_length)} : #{version}"
+          end.sort.join("\n")
         end
 
         def markdown_podfile
@@ -93,6 +111,24 @@ EOS
 #{Config.instance.podfile_path.read.strip}
 ```
 EOS
+        end
+
+        def search_for_exceptions(exception)
+          inspector = GhInspector::Inspector.new 'cocoapods', 'cocoapods'
+          message_delegate = UserInterface::InspectorReporter.new
+          inspector.search_exception exception, message_delegate
+        end
+
+        private
+
+        def `(other)
+          super
+        rescue Errno::ENOENT => e
+          "Unable to find an executable (#{e})"
+        end
+
+        def pathless_exception_message(message)
+          message.gsub(/- \(.*\):/, '-')
         end
 
         def error_from_podfile(error)
@@ -130,16 +166,8 @@ EOS
             reduce({}) { |hash, s| hash.tap { |h| h[s.name] = s.version.to_s } }
         end
 
-        def plugins_string
-          plugins = installed_plugins
-          max_name_length = plugins.keys.map(&:length).max
-          plugins.map do |name, version|
-            "#{name.ljust(max_name_length)} : #{version}"
-          end.sort.join("\n")
-        end
-
         def repo_information
-          SourcesManager.all.map do |source|
+          Config.instance.sources_manager.all.map do |source|
             next unless source.type == 'file system'
             repo = source.repo
             Dir.chdir(repo) do

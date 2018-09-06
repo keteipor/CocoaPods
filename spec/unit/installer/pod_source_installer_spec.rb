@@ -18,16 +18,6 @@ module Pod
         it 'downloads the source' do
           @spec.source = { :git => SpecHelper.fixture('banana-lib'), :tag => 'v1.0' }
           @installer.install!
-          @installer.specific_source[:tag].should == 'v1.0'
-          pod_folder = config.sandbox.pod_dir('BananaLib')
-          pod_folder.should.exist
-        end
-
-        it 'downloads the head source even if a specific source is present specified source' do
-          config.sandbox.store_head_pod('BananaLib')
-          @spec.source = { :git => SpecHelper.fixture('banana-lib'), :tag => 'v1.0' }
-          @installer.install!
-          @installer.specific_source[:commit].should == FIXTURE_HEAD
           pod_folder = config.sandbox.pod_dir('BananaLib')
           pod_folder.should.exist
         end
@@ -35,31 +25,65 @@ module Pod
         it 'returns the checkout options of the downloader if any' do
           @spec.source = { :git => SpecHelper.fixture('banana-lib'), :branch => 'topicbranch' }
           @installer.install!
-          @installer.specific_source[:commit].should == '446b22414597f1bb4062a62c4eed7af9627a3f1b'
           pod_folder = config.sandbox.pod_dir('BananaLib')
           pod_folder.should.exist
         end
+      end
 
-        it 'stores the checkout options in the sandbox' do
-          config.sandbox.store_head_pod('BananaLib')
-          @spec.source = { :git => SpecHelper.fixture('banana-lib'), :tag => 'v1.0' }
-          @installer.install!
-          sources = @installer.sandbox.checkout_sources
-          sources.should == { 'BananaLib' => {
-            :git => SpecHelper.fixture('banana-lib'),
-            :commit => FIXTURE_HEAD },
-          }
-        end
+      it 'does not show warning if the source is encrypted using https' do
+        @spec.source = { :http => 'https://orta.io/sdk.zip' }
+        dummy_response = Pod::Downloader::Response.new
+        Downloader.stubs(:download).returns(dummy_response)
+        @installer.install!
+        UI.warnings.length.should.equal(0)
+      end
 
-        it 'fails when using :head for http source' do
-          config.sandbox.store_head_pod('BananaLib')
-          @spec.source = { :http => 'http://dl.google.com/googleadmobadssdk/googleadmobsearchadssdkios.zip' }
-          @spec.source_files = 'GoogleAdMobSearchAdsSDK/*.h'
-          Pod::Downloader::Http.any_instance.stubs(:download_head)
-          should.raise Informative do
-            @installer.install!
-          end.message.should.match /does not support the :head option, as it uses a Http source./
-        end
+      it 'does not show warning if the source uses file:///' do
+        @spec.source = { :http => 'file:///orta.io/sdk.zip' }
+        dummy_response = Pod::Downloader::Response.new
+        Downloader.stubs(:download).returns(dummy_response)
+        @installer.install!
+        UI.warnings.length.should.equal(0)
+      end
+
+      it 'shows a warning if the source is unencrypted with http://' do
+        @spec.source = { :http => 'http://orta.io/sdk.zip' }
+        dummy_response = Pod::Downloader::Response.new
+        Downloader.stubs(:download).returns(dummy_response)
+        @installer.install!
+        UI.warnings.should.include 'uses the unencrypted \'http\' protocol'
+      end
+
+      it 'shows a warning if the source is unencrypted with git://' do
+        @spec.source = { :git => 'git://git.orta.io/orta.git' }
+        dummy_response = Pod::Downloader::Response.new
+        Downloader.stubs(:download).returns(dummy_response)
+        @installer.install!
+        UI.warnings.should.include 'uses the unencrypted \'git\' protocol'
+      end
+
+      it 'does not warn for local repositories with spaces' do
+        @spec.source = { :git => '/Users/kylef/Projects X', :tag => '1.0' }
+        dummy_response = Pod::Downloader::Response.new
+        Downloader.stubs(:download).returns(dummy_response)
+        @installer.install!
+        UI.warnings.length.should.equal(0)
+      end
+
+      it 'does not warn for SSH repositories' do
+        @spec.source = { :git => 'git@bitbucket.org:kylef/test.git', :tag => '1.0' }
+        dummy_response = Pod::Downloader::Response.new
+        Downloader.stubs(:download).returns(dummy_response)
+        @installer.install!
+        UI.warnings.length.should.equal(0)
+      end
+
+      it 'does not warn for SSH repositories on Github' do
+        @spec.source = { :git => 'git@github.com:kylef/test.git', :tag => '1.0' }
+        dummy_response = Pod::Downloader::Response.new
+        Downloader.stubs(:download).returns(dummy_response)
+        @installer.install!
+        UI.warnings.length.should.equal(0)
       end
 
       #--------------------------------------#
@@ -87,6 +111,18 @@ module Pod
           ENV['CDPATH'] = 'BogusPath'
           @spec.prepare_command = 'cd Classes;ls Banana.h'
           lambda { @installer.install! }.should.not.raise
+        end
+
+        it 'sets the $COCOAPODS_VERSION environment variable' do
+          @spec.prepare_command = "[ \"$COCOAPODS_VERSION\" == \"#{Pod::VERSION}\" ] || exit 1"
+          lambda { @installer.install! }.should.not.raise
+        end
+
+        it 'doesn\'t leak the $COCOAPODS_VERSION environment variable' do
+          ENV['COCOAPODS_VERSION'] = nil
+          @spec.prepare_command = 'exit 1'
+          lambda { @installer.install! }.should.raise(Pod::Informative)
+          ENV['COCOAPODS_VERSION'].should.be.nil
         end
       end
 
@@ -128,23 +164,6 @@ module Pod
           config.sandbox.store_local_path('BananaLib', 'Some Path')
           @installer.expects(:clean_installation).never
           @installer.install!
-        end
-      end
-
-      #--------------------------------------#
-
-      describe 'Locking' do
-        it 'locks the source files for each Pod' do
-          File.expects(:chmod).at_least_once
-          @installer.install!
-          @installer.lock_files!
-        end
-
-        it "doesn't lock local pods" do
-          @installer.stubs(:local?).returns(true)
-          File.expects(:chmod).never
-          @installer.install!
-          @installer.lock_files!
         end
       end
 

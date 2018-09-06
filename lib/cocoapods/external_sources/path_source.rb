@@ -16,7 +16,7 @@ module Pod
           end
           store_podspec(sandbox, podspec, podspec.extname == '.json')
           is_absolute = absolute?(declared_path)
-          sandbox.store_local_path(name, podspec.dirname, is_absolute)
+          sandbox.store_local_path(name, podspec, is_absolute)
           sandbox.remove_checkout_source(name)
         end
       end
@@ -24,7 +24,7 @@ module Pod
       # @see  AbstractExternalSource#description
       #
       def description
-        "from `#{params[:path] || params[:local]}`"
+        "from `#{declared_path}`"
       end
 
       private
@@ -34,7 +34,7 @@ module Pod
       # @return [String] The path as declared by the user.
       #
       def declared_path
-        result = params[:path] || params[:local]
+        result = params[:path]
         result.to_s if result
       end
 

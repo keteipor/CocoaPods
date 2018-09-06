@@ -20,21 +20,31 @@ module Pod
     #         the location to which this pod should be downloaded. If `nil`,
     #         then the pod will only be cached.
     #
+    # @param  [Boolean] can_cache
+    #         whether caching is allowed.
+    #
     # @param  [Pathname,Nil] cache_path
-    #         the path used to cache pod downloads. If `nil`, then no caching
-    #         will be done.
+    #         the path used to cache pod downloads.
     #
     def self.download(
       request,
       target,
-      cache_path: !Config.instance.skip_download_cache && Config.instance.clean? && Config.instance.cache_root + 'Pods'
+      can_cache: true,
+      cache_path: Config.instance.cache_root + 'Pods'
     )
-      if cache_path
+      can_cache &&= !Config.instance.skip_download_cache
+
+      request = preprocess_request(request)
+
+      if can_cache
+        raise ArgumentError, 'Must provide a `cache_path` when caching.' unless cache_path
         cache = Cache.new(cache_path)
         result = cache.download_pod(request)
       else
+        raise ArgumentError, 'Must provide a `target` when caching is disabled.' unless target
+
         require 'cocoapods/installer/pod_source_preparer'
-        result, _ = download_request(request, target)
+        result, = download_request(request, target)
         Installer::PodSourcePreparer.new(result.spec, result.location).prepare!
       end
 
@@ -62,7 +72,7 @@ module Pod
     #
     def self.download_request(request, target)
       result = Response.new
-      result.checkout_options = download_source(request.name, target, request.params, request.head?)
+      result.checkout_options = download_source(target, request.params)
       result.location = target
 
       if request.released_pod?
@@ -83,39 +93,41 @@ module Pod
 
     private
 
-    # Downloads a pod with the given `name` and `params` to `target`.
-    #
-    # @param  [String] name
+    # Downloads a pod with the given `params` to `target`.
     #
     # @param  [Pathname] target
     #
     # @param  [Hash<Symbol,String>] params
     #
-    # @param  [Boolean] head
-    #
     # @return [Hash] The checkout options required to re-download this exact
     #         same source.
     #
-    def self.download_source(name, target, params, head)
+    def self.download_source(target, params)
       FileUtils.rm_rf(target)
       downloader = Downloader.for_target(target, params)
-      if head
-        unless downloader.head_supported?
-          raise Informative, "The pod '#{name}' does not " \
-            "support the :head option, as it uses a #{downloader.name} " \
-            'source. Remove that option to use this pod.'
-        end
-        downloader.download_head
-      else
-        downloader.download
-      end
+      downloader.download
       target.mkpath
 
-      if downloader.options_specific? && !head
+      if downloader.options_specific?
         params
       else
         downloader.checkout_options
       end
+    end
+
+    # Return a new request after preprocessing by the downloader
+    #
+    # @param  [Request] request
+    #         the request that needs preprocessing
+    #
+    # @return [Request] the preprocessed request
+    #
+    def self.preprocess_request(request)
+      Request.new(
+        :spec => request.spec,
+        :released => request.released_pod?,
+        :name => request.name,
+        :params => Downloader.preprocess_options(request.params))
     end
 
     public

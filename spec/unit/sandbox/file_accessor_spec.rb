@@ -64,6 +64,12 @@ module Pod
         @accessor.non_arc_source_files.sort.should == []
       end
 
+      it 'returns the source files that do not match expected file extensions' do
+        @accessor.other_source_files.sort.should == [
+          @root + 'Classes/BananaTrace.d',
+        ]
+      end
+
       it 'returns the header files' do
         @accessor.headers.sort.should == [
           @root + 'Classes/Banana.h',
@@ -108,7 +114,12 @@ module Pod
 
       it 'returns the resources' do
         @accessor.resources.sort.should == [
+          @root + 'Resources/Base.lproj',
           @root + 'Resources/Images.xcassets',
+          @root + 'Resources/Migration.xcmappingmodel',
+          @root + 'Resources/Sample.xcdatamodeld',
+          @root + 'Resources/de.lproj',
+          @root + 'Resources/en.lproj',
           @root + 'Resources/logo-sidebar.png',
           @root + 'Resources/sub_dir',
         ]
@@ -134,10 +145,15 @@ module Pod
       end
 
       it 'returns the paths of the framework headers' do
-        @accessor.vendored_frameworks_headers.should == [
+        @accessor.vendored_frameworks_headers.sort.should == [
           @root + 'Bananalib.framework/Versions/A/Headers/Bananalib.h',
           @root + 'Bananalib.framework/Versions/A/Headers/SubDir/SubBananalib.h',
-        ]
+        ].sort
+      end
+
+      it 'handles when the framework headers directory does not exist' do
+        Pathname.any_instance.stubs(:directory?).returns(false)
+        FileAccessor.vendored_frameworks_headers_dir(@root + 'Bananalib.framework').should == @root + 'Bananalib.framework/Headers'
       end
 
       it 'returns the paths of the library files' do
@@ -148,7 +164,12 @@ module Pod
         @spec_consumer.stubs(:resource_bundles).returns('BananaLib' => 'Resources/*')
         resource_paths = [
           @root + 'Resources/logo-sidebar.png',
+          @root + 'Resources/Base.lproj',
+          @root + 'Resources/de.lproj',
+          @root + 'Resources/en.lproj',
           @root + 'Resources/Images.xcassets',
+          @root + 'Resources/Migration.xcmappingmodel',
+          @root + 'Resources/Sample.xcdatamodeld',
           @root + 'Resources/sub_dir',
         ]
         @accessor.resource_bundles.should == { 'BananaLib' => resource_paths }
@@ -158,10 +179,30 @@ module Pod
         @spec_consumer.stubs(:resource_bundles).returns('BananaLib' => 'Resources/*')
         resource_paths = [
           @root + 'Resources/logo-sidebar.png',
+          @root + 'Resources/Base.lproj',
+          @root + 'Resources/de.lproj',
+          @root + 'Resources/en.lproj',
           @root + 'Resources/Images.xcassets',
+          @root + 'Resources/Migration.xcmappingmodel',
+          @root + 'Resources/Sample.xcdatamodeld',
           @root + 'Resources/sub_dir',
         ]
         @accessor.resource_bundle_files.should == resource_paths
+      end
+
+      it 'takes into account exclude_files when creating the resource bundles of the pod' do
+        @spec_consumer.stubs(:exclude_files).returns(['**/*.png'])
+        @spec_consumer.stubs(:resource_bundles).returns('BananaLib' => 'Resources/*')
+        resource_paths = [
+          @root + 'Resources/Base.lproj',
+          @root + 'Resources/de.lproj',
+          @root + 'Resources/en.lproj',
+          @root + 'Resources/Images.xcassets',
+          @root + 'Resources/Migration.xcmappingmodel',
+          @root + 'Resources/Sample.xcdatamodeld',
+          @root + 'Resources/sub_dir',
+        ]
+        @accessor.resource_bundles.should == { 'BananaLib' => resource_paths }
       end
 
       it 'returns the prefix header of the specification' do
@@ -174,6 +215,78 @@ module Pod
 
       it 'returns the license file of the specification' do
         @accessor.license.should == @root + 'LICENSE'
+      end
+
+      describe '#spec_license' do
+        it 'returns the license file of the specification' do
+          @accessor.spec_license.should == @root + 'LICENSE'
+        end
+
+        it 'does not auto-detect the license' do
+          FileUtils.cp(@root + 'LICENSE', @root + 'LICENSE_TEMP')
+          @spec_consumer.stubs(:license).returns({})
+          @accessor.spec_license.should.be.nil
+          FileUtils.rm_f(@root + 'LICENSE_TEMP')
+        end
+
+        it 'returns nil if the license file path does not exist' do
+          @spec_consumer.stubs(:license).returns(:file => 'MISSING_PATH')
+          @accessor.spec_license.should.be.nil
+        end
+      end
+
+      it 'returns the docs of the specification' do
+        @accessor.docs.should == [
+          @root + 'docs/guide1.md',
+          @root + 'docs/subdir/guide2.md',
+        ]
+      end
+
+      it 'returns the podspecs of the specification' do
+        @accessor.specs.should == [
+          @root + 'BananaLib.podspec',
+        ]
+      end
+
+      it 'returns the matching podspec of the specification' do
+        @accessor.stubs(:specs).returns([@root + 'BananaLib.podspec', @root + 'OtherLib.podspec'])
+        @accessor.send(:podspec_file).should == @root + 'BananaLib.podspec'
+      end
+
+      it 'returns the developer files of the specification' do
+        @accessor.developer_files.should == [
+          @root + 'Banana.modulemap',
+          @root + 'BananaLib.podspec',
+          @root + 'Classes/BananaLib.pch',
+          @root + 'LICENSE',
+          @root + 'README',
+          @root + 'docs/guide1.md',
+          @root + 'docs/subdir/guide2.md',
+        ]
+      end
+
+      it 'warns when a LICENSE file is specified but the path does not exist' do
+        @spec_consumer.stubs(:license).returns(:file => 'PathThatDoesNotExist/LICENSE')
+        @accessor.developer_files.should == [
+          @root + 'Banana.modulemap',
+          @root + 'BananaLib.podspec',
+          @root + 'Classes/BananaLib.pch',
+          @root + 'LICENSE', # Found by globbing
+          @root + 'README',
+          @root + 'docs/guide1.md',
+          @root + 'docs/subdir/guide2.md',
+        ]
+        UI.warnings.should.include "A license was specified in podspec `#{@spec_consumer.name}` but the file does not exist - #{@accessor.root + 'PathThatDoesNotExist/LICENSE'}\n"
+      end
+
+      it 'does not return auto-detected developer files when there are multiple podspecs' do
+        @accessor.stubs(:specs).returns([@root + 'BananaLib.podspec', @root + 'OtherLib.podspec'])
+        @accessor.developer_files.should == [
+          @root + 'Banana.modulemap',
+          @root + 'BananaLib.podspec',
+          @root + 'Classes/BananaLib.pch',
+          @root + 'LICENSE',
+        ]
       end
 
       #--------------------------------------#
@@ -222,12 +335,27 @@ module Pod
           file_patterns = ['Classes/*.{h,m,d}', 'Vendor', 'framework/Source/*.h']
           options = {
             :exclude_patterns => ['Classes/**/osx/**/*', 'Resources/**/osx/**/*'],
-            :dir_pattern => '*{.m,.mm,.c,.cc,.cxx,.cpp,.c++,.swift,.h,.hh,.hpp,.ipp,.tpp}',
+            :dir_pattern => '*{.m,.mm,.i,.c,.cc,.cxx,.cpp,.c++,.swift,.h,.hh,.hpp,.ipp,.tpp,.hxx,.def,.inl,.inc}',
             :include_dirs => false,
           }
           @spec.exclude_files = options[:exclude_patterns]
           @accessor.expects(:expanded_paths).with(file_patterns, options)
           @accessor.send(:paths_for_attribute, :source_files)
+        end
+      end
+
+      describe '#dynamic_binary?' do
+        it 'not a dynamic binary if its not a file' do
+          binary = stub(:file? => false)
+          @accessor.send(:dynamic_binary?, binary).should.be.false
+        end
+
+        it 'uses the cache after the first time' do
+          binary = stub(:file? => true)
+          macho_file = stub(:dylib? => true)
+          MachO.stubs(:open).once.returns(macho_file)
+          @accessor.send(:dynamic_binary?, binary).should.be.true
+          @accessor.send(:dynamic_binary?, binary).should.be.true
         end
       end
     end

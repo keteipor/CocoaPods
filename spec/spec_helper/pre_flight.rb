@@ -5,15 +5,7 @@ module Bacon
     old_run_requirement = instance_method(:run_requirement)
 
     define_method(:run_requirement) do |description, spec|
-      ::Pod::Config.instance = nil
-      ::Pod::Config.instance.tap do |c|
-        c.verbose           =  false
-        c.silent            =  true
-        c.repos_dir         =  fixture('spec-repos')
-        c.installation_root =  SpecHelper.temporary_directory
-        c.skip_repo_update  =  true
-        c.cache_root        =  SpecHelper.temporary_directory + 'Cache'
-      end
+      ::SpecHelper.reset_config_instance
 
       ::Pod::UI.output = ''
       ::Pod::UI.warnings = ''
@@ -28,7 +20,7 @@ module Bacon
       SpecHelper.temporary_directory.mkpath
 
       # TODO
-      ::Pod::SourcesManager.stubs(:search_index_path).returns(temporary_directory + 'search_index.yaml')
+      ::Pod::Source::Manager.any_instance.stubs(:search_index_path).returns(temporary_directory + 'search_index.json')
 
       old_run_requirement.bind(self).call(description, spec)
     end

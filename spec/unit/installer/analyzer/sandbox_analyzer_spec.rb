@@ -22,12 +22,12 @@ module Pod
         @analyzer.stubs(:sandbox_checksum).returns(@spec.checksum)
         state = @analyzer.analyze
         state.class.should == Installer::Analyzer::SpecsState
-        state.unchanged.should == ['BananaLib']
+        state.unchanged.should == Set.new(%w(BananaLib))
       end
 
       it 'marks all the pods as added if no sandbox manifest is available' do
         @sandbox.stubs(:manifest)
-        @analyzer.analyze.added.should == ['BananaLib']
+        @analyzer.analyze.added.should == Set.new(%w(BananaLib))
       end
     end
 
@@ -83,24 +83,6 @@ module Pod
         @sandbox.stubs(:predownloaded?).returns(true)
         @analyzer.send(:pod_changed?, 'BananaLib').should == true
       end
-
-      it "considers a changed Pod whose head state doesn't match" do
-        @sandbox.stubs(:head_pod?).returns(true)
-        @analyzer.send(:pod_changed?, 'BananaLib').should == true
-      end
-
-      it 'considers changed a Pod whose specification is in head mode if in update mode' do
-        @sandbox.stubs(:head_pod?).returns(true)
-        @analyzer.stubs(:update_mode?).returns(true)
-        @analyzer.send(:pod_changed?, 'BananaLib').should == true
-      end
-
-      it "doesn't consider a changed Pod whose specification is in head mode if not in update mode" do
-        @sandbox.stubs(:head_pod?).returns(true)
-        @analyzer.stubs(:sandbox_head_version?).returns(true)
-        @analyzer.stubs(:update_mode?).returns(false)
-        @analyzer.send(:pod_changed?, 'BananaLib').should == false
-      end
     end
 
     #-------------------------------------------------------------------------#
@@ -108,13 +90,6 @@ module Pod
     describe 'Private helpers' do
       it 'returns the sandbox manifest' do
         @analyzer.send(:sandbox_manifest).should == @manifest
-      end
-
-      it 'returns the lockfile as the sandbox if one is not available' do
-        lockfile = Lockfile.new({})
-        @sandbox.stubs(:manifest)
-        @analyzer.stubs(:lockfile).returns(lockfile)
-        @analyzer.send(:sandbox_manifest).should == lockfile
       end
 
       #--------------------------------------#

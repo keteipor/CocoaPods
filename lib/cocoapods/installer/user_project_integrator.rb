@@ -44,8 +44,6 @@ module Pod
       # @param  [Pathname] installation_root @see #installation_root
       # @param  [Array<AggregateTarget>]  targets @see #targets
       #
-      # @todo   Too many initialization arguments
-      #
       def initialize(podfile, sandbox, installation_root, targets)
         @podfile = podfile
         @sandbox = sandbox
@@ -61,8 +59,8 @@ module Pod
       def integrate!
         create_workspace
         integrate_user_targets
-        warn_about_empty_podfile
         warn_about_xcconfig_overrides
+        save_projects
       end
 
       #-----------------------------------------------------------------------#
@@ -91,7 +89,7 @@ module Pod
           workspace = Xcodeproj::Workspace.new_from_xcworkspace(workspace_path)
           new_file_references = file_references - workspace.file_references
           unless new_file_references.empty?
-            workspace.file_references.concat(new_file_references)
+            new_file_references.each { |fr| workspace << fr }
             workspace.save_as(workspace_path)
           end
 
@@ -112,25 +110,42 @@ module Pod
       # @return [void]
       #
       def integrate_user_targets
-        targets_to_integrate.sort_by(&:name).each do |target|
-          TargetIntegrator.new(target).integrate!
+        target_integrators = targets_to_integrate.sort_by(&:name).map do |target|
+          TargetIntegrator.new(target)
         end
+
+        Config.instance.with_changes(:silent => true) do
+          deintegrator = Deintegrator.new
+          all_project_targets = user_projects.flat_map(&:native_targets).uniq
+          all_native_targets = targets_to_integrate.flat_map(&:user_targets).uniq
+          targets_to_deintegrate = all_project_targets - all_native_targets
+          targets_to_deintegrate.each do |target|
+            deintegrator.deintegrate_target(target)
+          end
+        end
+
+        target_integrators.each(&:integrate!)
       end
 
-      # Warns the user if the podfile is empty.
-      #
-      # @note   The workspace is created in any case and all the user projects
-      #         are added to it, however the projects are not integrated as
-      #         there is no way to discern between target definitions which are
-      #         empty and target definitions which just serve the purpose to
-      #         wrap other ones. This is not an issue because empty target
-      #         definitions generate empty libraries.
+      # Save all user projects.
       #
       # @return [void]
       #
-      def warn_about_empty_podfile
-        if podfile.target_definitions.values.all?(&:empty?)
-          UI.warn '[!] The Podfile does not contain any dependencies.'
+      def save_projects
+        user_projects.each do |project|
+          if project.dirty?
+            project.save
+          else
+            # There is a bug in Xcode where the process of deleting and
+            # re-creating the xcconfig files used in the build
+            # configuration cause building the user project to fail until
+            # Xcode is relaunched.
+            #
+            # Touching/saving the project causes Xcode to reload these.
+            #
+            # https://github.com/CocoaPods/CocoaPods/issues/2665
+            FileUtils.touch(project.path + 'project.pbxproj')
+          end
         end
       end
 
@@ -194,8 +209,12 @@ module Pod
         targets.map(&:user_project_path).compact.uniq
       end
 
+      def user_projects
+        targets.map(&:user_project).compact.uniq
+      end
+
       def targets_to_integrate
-        targets.reject { |target| target.target_definition.empty? }
+        targets
       end
 
       # Prints a warning informing the user that a build configuration of

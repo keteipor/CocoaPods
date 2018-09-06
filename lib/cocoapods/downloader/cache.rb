@@ -34,7 +34,7 @@ module Pod
       rescue Informative
         raise
       rescue
-        UI.notice("Error installing #{request.name}")
+        UI.puts("\n[!] Error installing #{request.name}".red)
         raise
       end
 
@@ -124,6 +124,7 @@ module Pod
       def cached_pod(request)
         cached_spec = cached_spec(request)
         path = path_for_pod(request)
+
         return unless cached_spec && path.directory?
         spec = request.spec || cached_spec
         Response.new(path, spec, request.params)
@@ -179,7 +180,7 @@ module Pod
         tmpdir = Pathname(Dir.mktmpdir)
         blk.call(tmpdir)
       ensure
-        FileUtils.remove_entry(tmpdir) if tmpdir && tmpdir.exist?
+        FileUtils.remove_entry(tmpdir, :force => true) if tmpdir && tmpdir.exist?
       end
 
       # Copies the `source` directory to `destination`, cleaning the directory

@@ -1,4 +1,4 @@
-require 'colored'
+require 'colored2'
 require 'claide'
 require 'molinillo/errors'
 
@@ -14,17 +14,22 @@ module Pod
   end
 
   class Command < CLAide::Command
-    require 'cocoapods/command/inter_process_communication'
+    require 'cocoapods/command/options/repo_update'
+    require 'cocoapods/command/options/project_directory'
+    include Options
+
+    require 'cocoapods/command/cache'
+    require 'cocoapods/command/env'
+    require 'cocoapods/command/init'
+    require 'cocoapods/command/install'
+    require 'cocoapods/command/ipc'
     require 'cocoapods/command/lib'
     require 'cocoapods/command/list'
     require 'cocoapods/command/outdated'
-    require 'cocoapods/command/project'
     require 'cocoapods/command/repo'
-    require 'cocoapods/command/search'
     require 'cocoapods/command/setup'
     require 'cocoapods/command/spec'
-    require 'cocoapods/command/init'
-    require 'cocoapods/command/cache'
+    require 'cocoapods/command/update'
 
     self.abstract_command = true
     self.command = 'pod'
@@ -32,17 +37,16 @@ module Pod
     self.description = 'CocoaPods, the Cocoa library package manager.'
     self.plugin_prefixes = %w(claide cocoapods)
 
-    [Install, Update, Outdated, IPC::Podfile, IPC::Repl].each { |c| c.send(:include, ProjectDirectory) }
-    [Outdated].each { |c| c.send(:include, Project) }
-
     def self.options
       [
-        ['--silent',   'Show nothing'],
+        ['--silent', 'Show nothing'],
       ].concat(super)
     end
 
     def self.run(argv)
       help! 'You cannot run CocoaPods as root.' if Process.uid == 0
+
+      verify_minimum_git_version!
       verify_xcode_license_approved!
 
       super(argv)
@@ -60,6 +64,7 @@ module Pod
       else
         if ENV['COCOA_PODS_ENV'] != 'development'
           puts UI::ErrorReport.report(exception)
+          UI::ErrorReport.search_for_exceptions(exception)
           exit 1
         else
           raise exception
@@ -82,6 +87,7 @@ module Pod
       config.silent = argv.flag?('silent', config.silent)
       config.verbose = self.verbose? unless verbose.nil?
       unless self.ansi_output?
+        Colored2.disable!
         String.send(:define_method, :colorize) { |string, _| string }
       end
     end
@@ -91,7 +97,7 @@ module Pod
     # @return [void]
     #
     def ensure_master_spec_repo_exists!
-      unless SourcesManager.master_repo_functional?
+      unless config.sources_manager.master_repo_functional?
         Setup.new(CLAide::ARGV.new([])).run
       end
     end
@@ -101,6 +107,38 @@ module Pod
     include Config::Mixin
 
     private
+
+    # Returns a new {Gem::Version} based on the systems `git` version.
+    #
+    # @return [Gem::Version]
+    #
+    def self.git_version
+      raw_version = Executable.capture_command('git', ['--version']).first
+      unless match = raw_version.scan(/\d+\.\d+\.\d+/).first
+        raise "Failed to extract git version from `git --version` (#{raw_version.inspect})"
+      end
+      Gem::Version.new(match)
+    end
+
+    # Checks that the git version is at least 1.8.5
+    #
+    # @raise If the git version is older than 1.8.5
+    #
+    # @return [void]
+    #
+    def self.verify_minimum_git_version!
+      if git_version < Gem::Version.new('1.8.5')
+        raise Informative, 'You need at least git version 1.8.5 to use CocoaPods'
+      end
+    end
+
+    # Returns a new {Installer} parametrized from the {Config}.
+    #
+    # @return [Installer]
+    #
+    def installer_for_config
+      Installer.new(config.sandbox, config.podfile, config.lockfile)
+    end
 
     # Checks that the podfile exists.
     #

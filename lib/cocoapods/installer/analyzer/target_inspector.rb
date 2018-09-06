@@ -1,14 +1,19 @@
+require 'active_support/core_ext/array/conversions'
+
 module Pod
   class Installer
     class Analyzer
       class TargetInspector
+        PLATFORM_INFO_URL = 'https://guides.cocoapods.org/syntax/podfile.html#platform'.freeze
+
         # @return [TargetDefinition] the target definition to inspect
         #
-        attr_accessor :target_definition
+        attr_reader :target_definition
 
         # @return [Pathname] the root of the CocoaPods installation where the
         #         Podfile is located
-        attr_accessor :installation_root
+        #
+        attr_reader :installation_root
 
         # Initialize a new instance
         #
@@ -25,26 +30,25 @@ module Pod
 
         # Inspect the #target_definition
         #
-        # @return [TargetInspectionResult]
+        # @raise If no `user_project` is set
         #
-        def compute_results
-          project_path = compute_project_path
-          user_project = Xcodeproj::Project.open(project_path)
-          targets = compute_targets(user_project)
+        # @return [TargetInspectionResult] the result of the inspection of the target definition within the user project
+        #
+        def compute_results(user_project)
+          raise ArgumentError, 'Cannot compute results without a user project set' unless user_project
 
-          result = TargetInspectionResult.new
-          result.target_definition = target_definition
-          result.project_path = project_path
-          result.project_target_uuids = targets.map(&:uuid)
-          result.build_configurations = compute_build_configurations(targets)
-          result.platform = compute_platform(targets)
-          result.archs = compute_archs(targets)
+          targets = compute_targets(user_project)
+          project_target_uuids = targets.map(&:uuid)
+          build_configurations = compute_build_configurations(targets)
+          platform = compute_platform(targets)
+          archs = compute_archs(targets)
+          swift_version = compute_swift_version_from_targets(targets)
+
+          result = TargetInspectionResult.new(target_definition, user_project, project_target_uuids,
+                                              build_configurations, platform, archs)
+          result.target_definition.swift_version = swift_version
           result
         end
-
-        #-----------------------------------------------------------------------#
-
-        private
 
         # Returns the path of the user project that the #target_definition
         # should integrate.
@@ -71,11 +75,15 @@ module Pod
             else
               raise Informative, 'Could not automatically select an Xcode project. ' \
                 "Specify one in your Podfile like so:\n\n" \
-                "    xcodeproj 'path/to/Project.xcodeproj'\n"
+                "    project 'path/to/Project.xcodeproj'\n"
             end
           end
           path
         end
+
+        #-----------------------------------------------------------------------#
+
+        private
 
         # Returns a list of the targets from the project of #target_definition
         # that needs to be integrated.
@@ -94,22 +102,15 @@ module Pod
         #
         def compute_targets(user_project)
           native_targets = user_project.native_targets
-          if link_with = target_definition.link_with
-            targets = native_targets.select { |t| link_with.include?(t.name) }
-            raise Informative, "Unable to find the targets named #{link_with.map { |x| "`#{x}`" }.to_sentence}" \
-              "to link with target definition `#{target_definition.name}`" if targets.empty?
-          elsif target_definition.link_with_first_target?
-            targets = [native_targets.first].compact
-            raise Informative, 'Unable to find a target' if targets.empty?
-          else
-            target = native_targets.find { |t| t.name == target_definition.name.to_s }
-            targets = [target].compact
-            raise Informative, "Unable to find a target named `#{target_definition.name}`" if targets.empty?
+          target = native_targets.find { |t| t.name == target_definition.name.to_s }
+          unless target
+            found = native_targets.map { |t| "`#{t.name}`" }.to_sentence
+            raise Informative, "Unable to find a target named `#{target_definition.name}`, did find #{found}."
           end
-          targets
+          [target]
         end
 
-        # @param  [Array<PBXNativeTarget] the user's targets of the project of
+        # @param  [Array<PBXNativeTarget] user_targets the user's targets of the project of
         #         #target_definition which needs to be integrated
         #
         # @return [Hash{String=>Symbol}] A hash representing the user build
@@ -126,7 +127,7 @@ module Pod
           end
         end
 
-        # @param  [Array<PBXNativeTarget] the user's targets of the project of
+        # @param  [Array<PBXNativeTarget] user_targets the user's targets of the project of
         #         #target_definition which needs to be integrated
         #
         # @return [Platform] The platform of the user's targets
@@ -150,13 +151,22 @@ module Pod
             end
           end
 
+          unless name
+            raise Informative,
+                  "Unable to determine the platform for the `#{target_definition.name}` target."
+          end
+
+          UI.warn "Automatically assigning platform `#{name}` with version `#{deployment_target}` " \
+            "on target `#{target_definition.name}` because no platform was specified. " \
+            "Please specify a platform for this target in your Podfile. See `#{PLATFORM_INFO_URL}`."
+
           target_definition.set_platform(name, deployment_target)
           Platform.new(name, deployment_target)
         end
 
         # Computes the architectures relevant for the user's targets.
         #
-        # @param  [Array<PBXNativeTarget] the user's targets of the project of
+        # @param  [Array<PBXNativeTarget] user_targets the user's targets of the project of
         #         #target_definition which needs to be integrated
         #
         # @return [Array<String>]
@@ -195,6 +205,53 @@ module Pod
             target.source_build_phase.files.any? do |build_file|
               file_predicate.call(build_file.file_ref)
             end
+          end
+        end
+
+        # Compute the Swift version for the target build configurations. If more
+        # than one Swift version is defined for a given target, then it will raise.
+        #
+        # @param  [Array<PBXNativeTarget>] targets
+        #         the targets that are checked for Swift versions.
+        #
+        # @return [String] the targets Swift version or nil
+        #
+        def compute_swift_version_from_targets(targets)
+          versions_to_targets = targets.inject({}) do |memo, target|
+            # User project may have an xcconfig that specifies the `SWIFT_VERSION`. We first check if that is true and
+            # that the xcconfig file actually exists. After the first integration the xcconfig set is most probably
+            # the one that was generated from CocoaPods. See https://github.com/CocoaPods/CocoaPods/issues/7731 for
+            # more details.
+            resolve_against_xcconfig = target.build_configuration_list.build_configurations.all? do |bc|
+              !bc.base_configuration_reference.nil? && File.exist?(bc.base_configuration_reference.real_path)
+            end
+            versions = target.resolved_build_setting('SWIFT_VERSION', resolve_against_xcconfig).values
+            versions.each do |version|
+              memo[version] = [] if memo[version].nil?
+              memo[version] << target.name unless memo[version].include? target.name
+            end
+            memo
+          end
+
+          case versions_to_targets.count
+          when 0
+            nil
+          when 1
+            versions_to_targets.keys.first
+          else
+            target_version_pairs = versions_to_targets.map do |version_names, target_names|
+              target_names.map { |target_name| [target_name, version_names] }
+            end
+
+            sorted_pairs = target_version_pairs.flat_map { |i| i }.sort_by do |target_name, version_name|
+              "#{target_name} #{version_name}"
+            end
+
+            formatted_output = sorted_pairs.map do |target, version_name|
+              "#{target}: Swift #{version_name}"
+            end.join("\n")
+
+            raise Informative, "There may only be up to 1 unique SWIFT_VERSION per target. Found target(s) with multiple Swift versions:\n#{formatted_output}"
           end
         end
       end

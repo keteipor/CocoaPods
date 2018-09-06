@@ -30,7 +30,7 @@ module Pod
 
     # Executes the given command displaying it if in verbose mode.
     #
-    # @param  [String] bin
+    # @param  [String] executable
     #         The binary to use.
     #
     # @param  [Array<#to_s>] command
@@ -45,26 +45,25 @@ module Pod
     #
     # @return [String] the output of the command (STDOUT and STDERR).
     #
-    # @todo   Find a way to display the live output of the commands.
-    #
-    def self.execute_command(executable, command, raise_on_failure)
-      bin = which(executable)
-      raise Informative, "Unable to locate the executable `#{executable}`" unless bin
-
-      require 'shellwords'
+    def self.execute_command(executable, command, raise_on_failure = true)
+      bin = which!(executable)
 
       command = command.map(&:to_s)
       full_command = "#{bin} #{command.join(' ')}"
 
       if Config.instance.verbose?
         UI.message("$ #{full_command}")
-        stdout, stderr = Indenter.new(STDOUT), Indenter.new(STDERR)
+        stdout = Indenter.new(STDOUT)
+        stderr = Indenter.new(STDERR)
       else
-        stdout, stderr = Indenter.new, Indenter.new
+        stdout = Indenter.new
+        stderr = Indenter.new
       end
 
       status = popen3(bin, command, stdout, stderr)
-      output = stdout.join + stderr.join
+      stdout = stdout.join
+      stderr = stderr.join
+      output = stdout + stderr
       unless status.success?
         if raise_on_failure
           raise Informative, "#{full_command}\n\n#{output}"
@@ -72,6 +71,7 @@ module Pod
           UI.message("[!] Failed: #{full_command}".red)
         end
       end
+
       output
     end
 
@@ -86,13 +86,61 @@ module Pod
     #
     def self.which(program)
       program = program.to_s
-      ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
+      paths = ENV.fetch('PATH') { '' }.split(File::PATH_SEPARATOR)
+      paths.unshift('./')
+      paths.uniq!
+      paths.each do |path|
         bin = File.expand_path(program, path)
         if File.file?(bin) && File.executable?(bin)
           return bin
         end
       end
       nil
+    end
+
+    # Returns the absolute path to the binary with the given name on the current
+    # `PATH`, or raises if none is found.
+    #
+    # @param  [String] program
+    #         The name of the program being searched for.
+    #
+    # @return [String] The absolute path to the given program.
+    #
+    def self.which!(program)
+      which(program).tap do |bin|
+        raise Informative, "Unable to locate the executable `#{program}`" unless bin
+      end
+    end
+
+    # Runs the given command, capturing the desired output.
+    #
+    # @param  [String] bin
+    #         The binary to use.
+    #
+    # @param  [Array<#to_s>] command
+    #         The command to send to the binary.
+    #
+    # @param  [Symbol] capture
+    #         Whether it should raise if the command fails.
+    #
+    # @raise  If the executable could not be located.
+    #
+    # @return [(String, Process::Status)]
+    #         The desired captured output from the command, and the status from
+    #         running the command.
+    #
+    def self.capture_command(executable, command, capture: :merge)
+      bin = which!(executable)
+
+      require 'open3'
+      command = command.map(&:to_s)
+      case capture
+      when :merge then Open3.capture2e(bin, *command)
+      when :both then Open3.capture3(bin, *command)
+      when :out then Open3.capture3(bin, *command).values_at(0, -1)
+      when :err then Open3.capture3(bin, *command).drop(1)
+      when :none then Open3.capture3(bin, *command).last
+      end
     end
 
     private
@@ -143,11 +191,11 @@ module Pod
     class Indenter < ::Array
       # @return [Fixnum] The indentation level of the UI.
       #
-      attr_accessor :indent
+      attr_reader :indent
 
       # @return [IO] the {IO} to which the output should be printed.
       #
-      attr_accessor :io
+      attr_reader :io
 
       # Init a new Indenter
       #
@@ -167,7 +215,7 @@ module Pod
       #
       def <<(value)
         super
-        io << "#{ indent }#{ value }" if io
+        io << "#{indent}#{value}" if io
       end
     end
   end

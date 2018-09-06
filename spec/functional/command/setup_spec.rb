@@ -32,46 +32,14 @@ module Pod
       url.should == test_repo_path.to_s
     end
 
-    it 'creates a shallow clone of the `master` repo by default' do
+    it 'creates a full clone of the `master` repo' do
       Dir.chdir(test_repo_path) do
         `echo 'touch' > touch && git add touch && git commit -m 'updated'`
       end
-      # Need to use file:// to test local use of --depth=1
-      Command::Setup.stubs(:read_only_url).returns("file://#{test_repo_path}")
       run_command('setup')
-      Dir.chdir(config.repos_dir + 'master') do
-        `git log --pretty=oneline`.strip.split("\n").size.should == 1
-      end
-    end
-
-    it 'creates a full clone of the `master` repo if requested' do
-      Dir.chdir(test_repo_path) do
-        `echo 'touch' > touch && git add touch && git commit -m 'updated'`
-      end
-      run_command('setup', '--no-shallow')
       Dir.chdir(config.repos_dir + 'master') do
         `git log --pretty=oneline`.strip.split("\n").size.should > 1
       end
-    end
-
-    before do
-      FileUtils.rm_rf(test_repo_path)
-      set_up_old_test_repo
-      config.repos_dir = SpecHelper.temporary_directory + 'cocoapods/repos'
-      Command::Setup.any_instance.stubs(:old_master_repo_dir).returns(SpecHelper.temporary_directory + 'cocoapods/master')
-    end
-
-    it 'migrates repos from the old directory structure to the new one' do
-      source = SpecHelper.temporary_directory + 'cocoapods/master'
-      target = config.repos_dir + 'master'
-
-      source.should.exist?
-      target.should.not.exist?
-
-      run_command('setup')
-
-      source.should.not.exist?
-      target.should.exist?
     end
   end
 end

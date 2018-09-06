@@ -8,6 +8,7 @@ describe Pod::Generator::Plist do
     @spec = @file_accessor.spec
     @generator = Pod::Generator::Plist.new([@file_accessor])
     @spec.stubs(:name).returns('POD_NAME')
+    @spec.stubs(:license).returns(:type => 'MIT')
     @generator.stubs(:license_text).returns('LICENSE_TEXT')
   end
 
@@ -24,6 +25,16 @@ describe Pod::Generator::Plist do
       :Type => 'PSGroupSpecifier',
       :Title => 'POD_NAME',
       :FooterText => 'LICENSE_TEXT',
+      :License => 'MIT',
+    }
+  end
+
+  it 'skips license type in hash when it is nil' do
+    @spec.stubs(:license).returns(:type => nil)
+    @generator.hash_for_spec(@spec).should == {
+      :Type => 'PSGroupSpecifier',
+      :Title => 'POD_NAME',
+      :FooterText => 'LICENSE_TEXT',
     }
   end
 
@@ -34,6 +45,7 @@ describe Pod::Generator::Plist do
       :Type => 'PSGroupSpecifier',
       :Title => 'POD_NAME',
       :FooterText => license_text,
+      :License => 'MIT',
     }
   end
 
@@ -43,7 +55,7 @@ describe Pod::Generator::Plist do
   end
 
   it 'returns a plist containg the licenses' do
-    @generator.plist.should == {
+    @generator.plist_hash.should == {
       :Title => 'Acknowledgements',
       :StringsTable => 'Acknowledgements',
       :PreferenceSpecifiers => @generator.licenses,
@@ -54,7 +66,7 @@ describe Pod::Generator::Plist do
     basepath = config.sandbox.root + 'Pods-acknowledgements'
     given_path = @generator.class.path_from_basepath(basepath)
     expected_path = config.sandbox.root + 'Pods-acknowledgements.plist'
-    Xcodeproj::PlistHelper.expects(:write).with(equals(@generator.plist), equals(expected_path))
+    Xcodeproj::Plist.expects(:write_to_path).with(equals(@generator.plist_hash), equals(expected_path))
     @generator.save_as(given_path)
   end
 end

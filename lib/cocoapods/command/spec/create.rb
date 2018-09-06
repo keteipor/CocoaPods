@@ -15,7 +15,8 @@ module Pod
         ]
 
         def initialize(argv)
-          @name_or_url, @url = argv.shift_argument, argv.shift_argument
+          @name_or_url = argv.shift_argument
+          @url = argv.shift_argument
           super
         end
 
@@ -59,7 +60,7 @@ module Pod
           data[:author_email]  = `git config --get user.email`.strip
           data[:source_url]    = "http://EXAMPLE/#{name}.git"
           data[:ref_type]      = ':tag'
-          data[:ref]           = '0.0.1'
+          data[:ref]           = '#{spec.version}'
           data
         end
 
@@ -73,7 +74,7 @@ module Pod
           data[:name]          = repo['name']
           data[:summary]       = (repo['description'] || '').gsub(/["]/, '\"')
           data[:homepage]      = (repo['homepage'] && !repo['homepage'].empty?) ? repo['homepage'] : repo['html_url']
-          data[:author_name]   = user['name']  || user['login']
+          data[:author_name]   = user['name'] || user['login']
           data[:author_email]  = user['email'] || 'email@address.com'
           data[:source_url]    = repo['clone_url']
 
@@ -99,6 +100,8 @@ module Pod
           else
             data[:ref_type] = ':tag'
             data[:ref]      = versions_tags[version]
+            data[:ref]      = '#{spec.version}' if "#{version}" == versions_tags[version]
+            data[:ref]      = 'v#{spec.version}' if "v#{version}" == versions_tags[version]
           end
           data
         end
@@ -109,11 +112,11 @@ module Pod
 #  Be sure to run `pod spec lint #{data[:name]}.podspec' to ensure this is a
 #  valid spec and to remove all comments including this before submitting the spec.
 #
-#  To learn more about Podspec attributes see http://docs.cocoapods.org/specification.html
+#  To learn more about Podspec attributes see https://docs.cocoapods.org/specification.html
 #  To see working Podspecs in the CocoaPods repo see https://github.com/CocoaPods/Specs/
 #
 
-Pod::Spec.new do |s|
+Pod::Spec.new do |spec|
 
   # ―――  Spec Metadata  ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
   #
@@ -122,32 +125,31 @@ Pod::Spec.new do |s|
   #  summary should be tweet-length, and the description more in depth.
   #
 
-  s.name         = "#{data[:name]}"
-  s.version      = "#{data[:version]}"
-  s.summary      = "#{data[:summary]}"
+  spec.name         = "#{data[:name]}"
+  spec.version      = "#{data[:version]}"
+  spec.summary      = "#{data[:summary]}"
 
-  s.description  = <<-DESC
-                   A longer description of #{data[:name]} in Markdown format.
-
-                   * Think: Why did you write this? What is the focus? What does it do?
-                   * CocoaPods will be using this to generate tags, and improve search results.
-                   * Try to keep it short, snappy and to the point.
-                   * Finally, don't worry about the indent, CocoaPods strips it!
+  # This description is used to generate tags and improve search results.
+  #   * Think: What does it do? Why did you write it? What is the focus?
+  #   * Try to keep it short, snappy and to the point.
+  #   * Write the description between the DESC delimiters below.
+  #   * Finally, don't worry about the indent, CocoaPods strips it!
+  spec.description  = <<-DESC
                    DESC
 
-  s.homepage     = "#{data[:homepage]}"
-  # s.screenshots  = "www.example.com/screenshots_1.gif", "www.example.com/screenshots_2.gif"
+  spec.homepage     = "#{data[:homepage]}"
+  # spec.screenshots  = "www.example.com/screenshots_1.gif", "www.example.com/screenshots_2.gif"
 
 
   # ―――  Spec License  ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
   #
-  #  Licensing your code is important. See http://choosealicense.com for more info.
+  #  Licensing your code is important. See https://choosealicense.com for more info.
   #  CocoaPods will detect a license file if there is a named LICENSE*
   #  Popular ones are 'MIT', 'BSD' and 'Apache License, Version 2.0'.
   #
 
-  s.license      = "MIT (example)"
-  # s.license      = { :type => "MIT", :file => "FILE_LICENSE" }
+  spec.license      = "MIT (example)"
+  # spec.license      = { :type => "MIT", :file => "FILE_LICENSE" }
 
 
   # ――― Author Metadata  ――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
@@ -160,10 +162,10 @@ Pod::Spec.new do |s|
   #  profile URL.
   #
 
-  s.author             = { "#{data[:author_name]}" => "#{data[:author_email]}" }
-  # Or just: s.author    = "#{data[:author_name]}"
-  # s.authors            = { "#{data[:author_name]}" => "#{data[:author_email]}" }
-  # s.social_media_url   = "http://twitter.com/#{data[:author_name]}"
+  spec.author             = { "#{data[:author_name]}" => "#{data[:author_email]}" }
+  # Or just: spec.author    = "#{data[:author_name]}"
+  # spec.authors            = { "#{data[:author_name]}" => "#{data[:author_email]}" }
+  # spec.social_media_url   = "https://twitter.com/#{data[:author_name]}"
 
   # ――― Platform Specifics ――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
   #
@@ -171,13 +173,14 @@ Pod::Spec.new do |s|
   #  the deployment target. You can optionally include the target after the platform.
   #
 
-  # s.platform     = :ios
-  # s.platform     = :ios, "5.0"
+  # spec.platform     = :ios
+  # spec.platform     = :ios, "5.0"
 
   #  When using multiple platforms
-  # s.ios.deployment_target = "5.0"
-  # s.osx.deployment_target = "10.7"
-  # s.watchos.deployment_target = "2.0"
+  # spec.ios.deployment_target = "5.0"
+  # spec.osx.deployment_target = "10.7"
+  # spec.watchos.deployment_target = "2.0"
+  # spec.tvos.deployment_target = "9.0"
 
 
   # ――― Source Location ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
@@ -186,7 +189,7 @@ Pod::Spec.new do |s|
   #  Supports git, hg, bzr, svn and HTTP.
   #
 
-  s.source       = { :git => "#{data[:source_url]}", #{data[:ref_type]} => "#{data[:ref]}" }
+  spec.source       = { :git => "#{data[:source_url]}", #{data[:ref_type]} => "#{data[:ref]}" }
 
 
   # ――― Source Code ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
@@ -197,10 +200,10 @@ Pod::Spec.new do |s|
   #  Not including the public_header_files will make all headers public.
   #
 
-  s.source_files  = "Classes", "Classes/**/*.{h,m}"
-  s.exclude_files = "Classes/Exclude"
+  spec.source_files  = "Classes", "Classes/**/*.{h,m}"
+  spec.exclude_files = "Classes/Exclude"
 
-  # s.public_header_files = "Classes/**/*.h"
+  # spec.public_header_files = "Classes/**/*.h"
 
 
   # ――― Resources ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
@@ -211,10 +214,10 @@ Pod::Spec.new do |s|
   #  non-essential files like tests, examples and documentation.
   #
 
-  # s.resource  = "icon.png"
-  # s.resources = "Resources/*.png"
+  # spec.resource  = "icon.png"
+  # spec.resources = "Resources/*.png"
 
-  # s.preserve_paths = "FilesToSave", "MoreFilesToSave"
+  # spec.preserve_paths = "FilesToSave", "MoreFilesToSave"
 
 
   # ――― Project Linking ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
@@ -223,11 +226,11 @@ Pod::Spec.new do |s|
   #  the lib prefix of their name.
   #
 
-  # s.framework  = "SomeFramework"
-  # s.frameworks = "SomeFramework", "AnotherFramework"
+  # spec.framework  = "SomeFramework"
+  # spec.frameworks = "SomeFramework", "AnotherFramework"
 
-  # s.library   = "iconv"
-  # s.libraries = "iconv", "xml2"
+  # spec.library   = "iconv"
+  # spec.libraries = "iconv", "xml2"
 
 
   # ――― Project Settings ――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #
@@ -236,10 +239,10 @@ Pod::Spec.new do |s|
   #  where they will only apply to your library. If you depend on other Podspecs
   #  you can include multiple dependencies to ensure it works.
 
-  # s.requires_arc = true
+  # spec.requires_arc = true
 
-  # s.xcconfig = { "HEADER_SEARCH_PATHS" => "$(SDKROOT)/usr/include/libxml2" }
-  # s.dependency "JSONKit", "~> 1.4"
+  # spec.xcconfig = { "HEADER_SEARCH_PATHS" => "$(SDKROOT)/usr/include/libxml2" }
+  # spec.dependency "JSONKit", "~> 1.4"
 
 end
           SPEC
@@ -256,7 +259,7 @@ CocoaPods is a tool for managing dependencies for OSX and iOS Xcode projects and
 
 However, #{repo} doesn't have any version tags. I’ve added the current HEAD as version 0.0.1, but a version tag will make dependency resolution much easier.
 
-[Semantic version](http://semver.org) tags (instead of plain commit hashes/revisions) allow for [resolution of cross-dependencies](https://github.com/CocoaPods/Specs/wiki/Cross-dependencies-resolution-example).
+[Semantic version](https://semver.org) tags (instead of plain commit hashes/revisions) allow for [resolution of cross-dependencies](https://github.com/CocoaPods/Specs/wiki/Cross-dependencies-resolution-example).
 
 In case you didn’t know this yet; you can tag the current HEAD as, for instance, version 1.0.0, like so:
 

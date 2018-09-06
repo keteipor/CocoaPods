@@ -53,15 +53,17 @@ module Pod
         project.new_target(:application, 'AppA', :ios)
         project.new_target(:application, 'AppB', :ios)
         project.new_target(:application, "App'C", :ios)
+        project.new_aggregate_target('Aggregate')
         project.save
 
         run_command('init')
 
-        config.podfile.nil?.should == false
-        config.podfile.target_definitions.length.should == project.targets.length + 1
-        config.podfile.target_definitions['AppA'].nil?.should == false
-        config.podfile.target_definitions['AppB'].nil?.should == false
-        config.podfile.target_definitions["App'C"].nil?.should == false
+        config.podfile.should.not.be.nil
+        config.podfile.target_definitions.length.should == project.targets.length
+        config.podfile.target_definitions['AppA'].should.not.be.nil
+        config.podfile.target_definitions['AppB'].should.not.be.nil
+        config.podfile.target_definitions["App'C"].should.not.be.nil
+        config.podfile.target_definitions['Aggregate'].should.be.nil
       end
     end
 
@@ -84,6 +86,52 @@ module Pod
       end
     end
 
+    it 'handles hooking up mulitple test targets based on an xcodeproj project' do
+      Dir.chdir(temporary_directory) do
+        project = Xcodeproj::Project.new(temporary_directory + 'test.xcodeproj')
+        project.new_target(:application, 'App', :ios)
+        project.new_target(:unit_test_bundle, 'AppTests', :ios)
+        project.new_target(:ui_test_bundle, 'AppFeatureTests', :ios)
+        project.new_target(:application, 'Swifty App', :osx, nil, nil, :swift)
+        project.save
+
+        run_command('init')
+
+        expected_podfile = <<-RUBY.strip_heredoc
+          # Uncomment the next line to define a global platform for your project
+          # platform :ios, '9.0'
+
+          target 'App' do
+            # Uncomment the next line if you're using Swift or would like to use dynamic frameworks
+            # use_frameworks!
+
+            # Pods for App
+
+            target 'AppFeatureTests' do
+              inherit! :search_paths
+              # Pods for testing
+            end
+
+            target 'AppTests' do
+              inherit! :search_paths
+              # Pods for testing
+            end
+
+          end
+
+          target 'Swifty App' do
+            # Comment the next line if you're not using Swift and don't want to use dynamic frameworks
+            use_frameworks!
+
+            # Pods for Swifty App
+
+          end
+        RUBY
+
+        File.read('Podfile').should == expected_podfile
+      end
+    end
+
     it 'includes default test pods in test targets in a Podfile' do
       Dir.chdir(temporary_directory) do
         tmp_templates_dir = Pathname.pwd + 'templates_dir'
@@ -93,13 +141,34 @@ module Pod
         open(config.default_test_podfile_path, 'w') { |f| f << "pod 'Kiwi'" }
 
         project = Xcodeproj::Project.new(temporary_directory + 'test.xcodeproj')
-        project.new_target(:application, 'AppTests', :ios)
+        project.new_target(:application, 'App', :ios)
+        project.new_target(:unit_test_bundle, 'AppTests', :ios)
         project.save
 
         run_command('init')
 
         dependencies = config.podfile.target_definitions['AppTests'].dependencies
         dependencies.map(&:name).should == ['Kiwi']
+      end
+    end
+
+    it 'does not treat non-test targets as test targets' do
+      Dir.chdir(temporary_directory) do
+        tmp_templates_dir = Pathname.pwd + 'templates_dir'
+        tmp_templates_dir.mkpath
+        config.stubs(:templates_dir).returns(tmp_templates_dir)
+
+        open(config.default_test_podfile_path, 'w') { |f| f << "pod 'Kiwi'" }
+
+        project = Xcodeproj::Project.new(temporary_directory + 'test.xcodeproj')
+        project.new_target(:application, 'Test', :ios)
+        project.new_target(:application, 'Test Test Test', :ios)
+        project.save
+
+        run_command('init')
+
+        config.podfile.target_definitions['Test'].dependencies.should.be.empty
+        config.podfile.target_definitions['Test Test Test'].dependencies.should.be.empty
       end
     end
 

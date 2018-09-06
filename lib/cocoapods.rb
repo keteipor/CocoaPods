@@ -40,6 +40,7 @@ module Pod
 
   autoload :AggregateTarget,           'cocoapods/target/aggregate_target'
   autoload :Command,                   'cocoapods/command'
+  autoload :Deintegrator,              'cocoapods_deintegrate'
   autoload :Executable,                'cocoapods/executable'
   autoload :ExternalSources,           'cocoapods/external_sources'
   autoload :Installer,                 'cocoapods/installer'
@@ -48,7 +49,6 @@ module Pod
   autoload :Project,                   'cocoapods/project'
   autoload :Resolver,                  'cocoapods/resolver'
   autoload :Sandbox,                   'cocoapods/sandbox'
-  autoload :SourcesManager,            'cocoapods/sources_manager'
   autoload :Target,                    'cocoapods/target'
   autoload :Validator,                 'cocoapods/validator'
 
@@ -57,6 +57,7 @@ module Pod
     autoload :Markdown,                'cocoapods/generator/acknowledgements/markdown'
     autoload :Plist,                   'cocoapods/generator/acknowledgements/plist'
     autoload :BridgeSupport,           'cocoapods/generator/bridge_support'
+    autoload :Constant,                'cocoapods/generator/constant'
     autoload :CopyResourcesScript,     'cocoapods/generator/copy_resources_script'
     autoload :DummySource,             'cocoapods/generator/dummy_source'
     autoload :EmbedFrameworksScript,   'cocoapods/generator/embed_frameworks_script'
@@ -65,12 +66,8 @@ module Pod
     autoload :ModuleMap,               'cocoapods/generator/module_map'
     autoload :PrefixHeader,            'cocoapods/generator/prefix_header'
     autoload :UmbrellaHeader,          'cocoapods/generator/umbrella_header'
-    autoload :XCConfig,                'cocoapods/generator/xcconfig'
+    autoload :AppTargetHelper,         'cocoapods/generator/app_target_helper'
   end
 
-  module Hooks
-    autoload :InstallerRepresentation, 'cocoapods/hooks/installer_representation'
-    autoload :LibraryRepresentation,   'cocoapods/hooks/library_representation'
-    autoload :PodRepresentation,       'cocoapods/hooks/pod_representation'
-  end
+  require 'cocoapods/core_overrides'
 end

@@ -2,10 +2,10 @@ module Pod
   class Command
     class Repo < Command
       class Add < Repo
-        self.summary = 'Add a spec repo.'
+        self.summary = 'Add a spec repo'
 
         self.description = <<-DESC
-          Clones `URL` in the local spec-repos directory at `~/.cocoapods/repos/`. The
+          Clones `URL` in the local spec-repos directory at `#{Config.instance.repos_dir}`. The
           remote can later be referred to by `NAME`.
         DESC
 
@@ -17,13 +17,15 @@ module Pod
 
         def self.options
           [
-            ['--shallow', 'Create a shallow clone (fast clone, but no push capabilities)'],
+            ['--progress', 'Show the progress of cloning the spec repository'],
           ].concat(super)
         end
 
         def initialize(argv)
-          @shallow = argv.flag?('shallow', false)
-          @name, @url, @branch = argv.shift_argument, argv.shift_argument, argv.shift_argument
+          @name = argv.shift_argument
+          @url = argv.shift_argument
+          @branch = argv.shift_argument
+          @progress = argv.flag?('progress')
           super
         end
 
@@ -32,20 +34,68 @@ module Pod
           unless @name && @url
             help! 'Adding a repo needs a `NAME` and a `URL`.'
           end
+          if @name == 'master' || @url =~ %r{github.com[:/]+cocoapods/specs}i
+            raise Informative,
+                  'To setup the master specs repo, please run `pod setup`.'
+          end
         end
 
         def run
-          prefix = @shallow ? 'Creating shallow clone of' : 'Cloning'
-          UI.section("#{prefix} spec repo `#{@name}` from `#{@url}`#{" (branch `#{@branch}`)" if @branch}") do
-            config.repos_dir.mkpath
+          section = "Cloning spec repo `#{@name}` from `#{@url}`"
+          section << " (branch `#{@branch}`)" if @branch
+          UI.section(section) do
+            create_repos_dir
+            clone_repo
+            checkout_branch
+            config.sources_manager.sources([dir.basename.to_s]).each(&:verify_compatibility!)
+          end
+        end
+
+        private
+
+        # Creates the repos directory specified in the configuration by
+        # `config.repos_dir`.
+        #
+        # @return [void]
+        #
+        # @raise  If the directory cannot be created due to a system error.
+        #
+        def create_repos_dir
+          config.repos_dir.mkpath
+        rescue => e
+          raise Informative, "Could not create '#{config.repos_dir}', the CocoaPods repo cache directory.\n" \
+            "#{e.class.name}: #{e.message}"
+        end
+
+        # Clones the git spec-repo according to parameters passed to the
+        # command.
+        #
+        # @return [void]
+        #
+        def clone_repo
+          changes = if @progress
+                      { :verbose => true }
+                    else
+                      {}
+          end
+
+          config.with_changes(changes) do
             Dir.chdir(config.repos_dir) do
               command = ['clone', @url, @name]
-              command << '--depth=1' if @shallow
+              if @progress
+                command << '--progress'
+              end
               git!(command)
             end
-            Dir.chdir(dir) { git!('checkout', @branch) } if @branch
-            SourcesManager.check_version_information(dir)
           end
+        end
+
+        # Checks out the branch of the git spec-repo if provided.
+        #
+        # @return [void]
+        #
+        def checkout_branch
+          Dir.chdir(dir) { git!('checkout', @branch) } if @branch
         end
       end
     end
