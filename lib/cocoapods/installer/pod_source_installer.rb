@@ -8,7 +8,9 @@ module Pod
     # @note This class needs to consider all the activated specs of a Pod.
     #
     class PodSourceInstaller
-      # @return [Sandbox]
+      UNENCRYPTED_PROTOCOLS = %w(http git).freeze
+
+      # @return [Sandbox] The installation target.
       #
       attr_reader :sandbox
 
@@ -17,18 +19,33 @@ module Pod
       #
       attr_reader :specs_by_platform
 
-      # @param [Sandbox] sandbox @see sandbox
-      # @param [Hash{Symbol=>Array}] specs_by_platform @see specs_by_platform
+      # @return [Boolean] Whether the installer is allowed to touch the cache.
       #
-      def initialize(sandbox, specs_by_platform)
+      attr_reader :can_cache
+      alias_method :can_cache?, :can_cache
+
+      # Initialize a new instance
+      #
+      # @param [Sandbox] sandbox @see #sandbox
+      # @param [Hash{Symbol=>Array}] specs_by_platform @see #specs_by_platform
+      # @param [Boolean] can_cache @see #can_cache
+      #
+      def initialize(sandbox, specs_by_platform, can_cache: true)
         @sandbox = sandbox
         @specs_by_platform = specs_by_platform
+        @can_cache = can_cache
       end
 
       # @return [String] A string suitable for debugging.
       #
       def inspect
         "<#{self.class} sandbox=#{sandbox.root} pod=#{root_spec.name}"
+      end
+
+      # @return [String] The name of the pod this installer is installing.
+      #
+      def name
+        root_spec.name
       end
 
       #-----------------------------------------------------------------------#
@@ -44,13 +61,9 @@ module Pod
       def install!
         download_source unless predownloaded? || local?
         PodSourcePreparer.new(root_spec, root).prepare! if local?
-        lock_files!
       end
 
       # Cleans the installations if appropriate.
-      #
-      # @todo   As the pre install hooks need to run before cleaning this
-      #         method should be refactored.
       #
       # @return [void]
       #
@@ -58,9 +71,23 @@ module Pod
         clean_installation unless local?
       end
 
-      # @return [Hash]
+      # Locks the source files if appropriate.
       #
-      attr_reader :specific_source
+      # @return [void]
+      #
+      def lock_files!(file_accessors)
+        return if local?
+        FileUtils.chmod('u-w', source_files(file_accessors))
+      end
+
+      # Unlocks the source files if appropriate.
+      #
+      # @return [void]
+      #
+      def unlock_files!(file_accessors)
+        return if local?
+        FileUtils.chmod('u+w', source_files(file_accessors))
+      end
 
       #-----------------------------------------------------------------------#
 
@@ -68,17 +95,38 @@ module Pod
 
       # @!group Installation Steps
 
-      # Downloads the source of the Pod. It also stores the specific options
-      # needed to recreate the same exact installation if needed in
-      # `#specific_source`.
+      # Downloads the source of the Pod.
       #
       # @return [void]
       #
       def download_source
-        download_result = Downloader.download(download_request, root)
+        verify_source_is_secure(root_spec)
+        download_result = Downloader.download(download_request, root, :can_cache => can_cache?)
 
-        if (@specific_source = download_result.checkout_options) && specific_source != root_spec.source
+        if (specific_source = download_result.checkout_options) && specific_source != root_spec.source
           sandbox.store_checkout_source(root_spec.name, specific_source)
+        end
+      end
+
+      # Verify the source of the spec is secure, which is used to show a warning to the user if that isn't the case
+      # This method doesn't verify all protocols, but currently only prohibits unencrypted 'http://' and 'git://''
+      # connections.
+      #
+      # @return [void]
+      #
+      def verify_source_is_secure(root_spec)
+        return if root_spec.source.nil? || (root_spec.source[:http].nil? && root_spec.source[:git].nil?)
+        source = if !root_spec.source[:http].nil?
+                   URI(root_spec.source[:http].to_s)
+                 elsif !root_spec.source[:git].nil?
+                   git_source = root_spec.source[:git].to_s
+                   return unless git_source =~ /^#{URI.regexp}$/
+                   URI(git_source)
+                 end
+        if UNENCRYPTED_PROTOCOLS.include?(source.scheme)
+          UI.warn "'#{root_spec.name}' uses the unencrypted '#{source.scheme}' protocol to transfer the Pod. " \
+                'Please be sure you\'re in a safe network with only trusted hosts. ' \
+                'Otherwise, please reach out to the library author to notify them of this security issue.'
         end
       end
 
@@ -86,27 +134,7 @@ module Pod
         Downloader::Request.new(
           :spec => root_spec,
           :released => released?,
-          :head => head_pod?,
         )
-      end
-
-      # Locks all of the files in this pod (source, license, etc). This will
-      # cause Xcode to warn you if you try to accidently edit one of the files.
-      #
-      # @return [void]
-      #
-      def lock_files!
-        if local?
-          return
-        end
-
-        # We don't want to lock diretories, as that forces you to override
-        # those permissions if you decide to delete the Pods folder.
-        Dir.glob(root + '**/*').each do |file|
-          unless File.directory?(file)
-            File.chmod(0444, file)
-          end
-        end
       end
 
       # Removes all the files not needed for the installation according to the
@@ -158,12 +186,14 @@ module Pod
         sandbox.local?(root_spec.name)
       end
 
-      def head_pod?
-        sandbox.head_pod?(root_spec.name)
+      def released?
+        !local? && !predownloaded? && sandbox.specification(root_spec.name) != root_spec
       end
 
-      def released?
-        !local? && !head_pod? && !predownloaded? && sandbox.specification(root_spec.name) != root_spec
+      # @return [Array<Pathname>] The paths of the source files
+      #
+      def source_files(file_accessors)
+        file_accessors.flat_map(&:source_files)
       end
 
       #-----------------------------------------------------------------------#

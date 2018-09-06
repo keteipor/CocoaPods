@@ -1,3 +1,5 @@
+require 'active_support/multibyte/unicode'
+
 module Pod
   # Stores the global configuration of CocoaPods.
   #
@@ -14,15 +16,32 @@ module Pod
     DEFAULTS = {
       :verbose             => false,
       :silent              => false,
-      :skip_repo_update    => false,
       :skip_download_cache => !ENV['COCOAPODS_SKIP_CACHE'].nil?,
 
-      :clean               => true,
-      :integrate_targets   => true,
       :new_version_message => ENV['COCOAPODS_SKIP_UPDATE_MESSAGE'].nil?,
 
       :cache_root          => Pathname.new(Dir.home) + 'Library/Caches/CocoaPods',
     }
+
+    # Applies the given changes to the config for the duration of the given
+    # block.
+    #
+    # @param [Hash<#to_sym,Object>] changes
+    #        the changes to merge temporarily with the current config
+    #
+    # @yield [] is called while the changes are applied
+    #
+    def with_changes(changes)
+      old = {}
+      changes.keys.each do |key|
+        key = key.to_sym
+        old[key] = send(key) if respond_to?(key)
+      end
+      configure_with(changes)
+      yield if block_given?
+    ensure
+      configure_with(old)
+    end
 
     public
 
@@ -50,22 +69,6 @@ module Pod
     #-------------------------------------------------------------------------#
 
     # @!group Installation
-
-    # @return [Bool] Whether the installer should clean after the installation.
-    #
-    attr_accessor :clean
-    alias_method :clean?, :clean
-
-    # @return [Bool] Whether CocoaPods should integrate a user target and build
-    #         the workspace or just create the Pods project.
-    #
-    attr_accessor :integrate_targets
-    alias_method :integrate_targets?, :integrate_targets
-
-    # @return [Bool] Whether the installer should skip the repos update.
-    #
-    attr_accessor :skip_repo_update
-    alias_method :skip_repo_update?, :skip_repo_update
 
     # @return [Bool] Whether the installer should skip the download cache.
     #
@@ -97,10 +100,18 @@ module Pod
     def initialize(use_user_settings = true)
       configure_with(DEFAULTS)
 
+      unless ENV['CP_HOME_DIR'].nil?
+        @cache_root = home_dir + 'cache'
+      end
+
       if use_user_settings && user_settings_file.exist?
         require 'yaml'
         user_settings = YAML.load_file(user_settings_file)
         configure_with(user_settings)
+      end
+
+      unless ENV['CP_CACHE_DIR'].nil?
+        @cache_root = Pathname.new(ENV['CP_CACHE_DIR']).expand_path
       end
     end
 
@@ -124,22 +135,28 @@ module Pod
     # @return [Pathname] the directory where the CocoaPods sources are stored.
     #
     def repos_dir
-      @repos_dir ||= Pathname.new(ENV['CP_REPOS_DIR'] || '~/.cocoapods/repos').expand_path
+      @repos_dir ||= Pathname.new(ENV['CP_REPOS_DIR'] || (home_dir + 'repos')).expand_path
     end
 
     attr_writer :repos_dir
 
+    def sources_manager
+      return @sources_manager if @sources_manager && @sources_manager.repos_dir == repos_dir
+      @sources_manager = Source::Manager.new(repos_dir)
+    end
+
     # @return [Pathname] the directory where the CocoaPods templates are stored.
     #
     def templates_dir
-      @templates_dir ||= Pathname.new(ENV['CP_TEMPLATES_DIR'] || '~/.cocoapods/templates').expand_path
+      @templates_dir ||= Pathname.new(ENV['CP_TEMPLATES_DIR'] || (home_dir + 'templates')).expand_path
     end
 
     # @return [Pathname] the root of the CocoaPods installation where the
     #         Podfile is located.
     #
     def installation_root
-      current_path = Pathname.pwd
+      current_dir = ActiveSupport::Multibyte::Unicode.normalize(Dir.pwd)
+      current_path = Pathname.new(current_dir)
       unless @installation_root
         until current_path.root?
           if podfile_path_in_dir(current_path)
@@ -234,7 +251,7 @@ module Pod
     # @return [Pathname] The file to use to cache the search data.
     #
     def search_index_file
-      cache_root + 'search_index.yaml'
+      cache_root + 'search_index.json'
     end
 
     private
@@ -259,6 +276,9 @@ module Pod
     def configure_with(values_by_key)
       return unless values_by_key
       values_by_key.each do |key, value|
+        if key == :cache_root
+          value = Pathname.new(value).expand_path
+        end
         instance_variable_set("@#{key}", value)
       end
     end

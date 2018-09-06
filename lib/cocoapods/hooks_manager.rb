@@ -1,4 +1,4 @@
-require 'rubygems'
+require 'active_support/core_ext/hash/indifferent_access'
 
 module Pod
   # Provides support for the hook system of CocoaPods. The system is designed
@@ -34,6 +34,8 @@ module Pod
       #
       attr_reader :block
 
+      # Initialize a new instance
+      #
       # @param  [String] name        @see {#name}.
       #
       # @param  [String] plugin_name @see {#plugin_name}.
@@ -42,10 +44,8 @@ module Pod
       #
       def initialize(name, plugin_name, block)
         raise ArgumentError, 'Missing name' unless name
+        raise ArgumentError, 'Missing plugin_name' unless plugin_name
         raise ArgumentError, 'Missing block' unless block
-
-        UI.warn '[Hooks] The use of hooks without specifying a `plugin_name` ' \
-                "has been deprecated (from file `#{block.binding.eval('File.expand_path __FILE__')}`)." unless plugin_name
 
         @name = name
         @plugin_name = plugin_name
@@ -70,16 +70,24 @@ module Pod
       # @param  [Proc] block
       #         The block.
       #
-      def register(plugin_name, hook_name = nil, &block)
-        # TODO: Backwards compatibility with nameless plugins from CP 0.34
-        if hook_name.nil?
-          hook_name = plugin_name
-          plugin_name = nil
-        end
-
+      def register(plugin_name, hook_name, &block)
         @registrations ||= {}
         @registrations[hook_name] ||= []
         @registrations[hook_name] << Hook.new(hook_name, plugin_name, block)
+      end
+
+      # Returns all the hooks to run for the given event name
+      # and set of whitelisted plugins
+      #
+      # @see #run
+      #
+      # @return [Array<Hook>] the hooks to run
+      #
+      def hooks_to_run(name, whitelisted_plugins = nil)
+        return [] unless registrations
+        hooks = registrations.fetch(name, [])
+        return hooks unless whitelisted_plugins
+        hooks.select { |hook| whitelisted_plugins.key?(hook.plugin_name) }
       end
 
       # Runs all the registered blocks for the hook with the given name.
@@ -100,21 +108,20 @@ module Pod
         raise ArgumentError, 'Missing name' unless name
         raise ArgumentError, 'Missing options' unless context
 
-        if registrations
-          hooks = registrations[name]
-          if hooks
-            UI.message "- Running #{name.to_s.gsub('_', ' ')} hooks" do
-              hooks.each do |hook|
-                next if whitelisted_plugins && !whitelisted_plugins.key?(hook.plugin_name)
-                UI.message "- #{hook.plugin_name || 'unknown plugin'} from " \
-                           "`#{hook.block.source_location.first}`" do
-                  block = hook.block
-                  if block.arity > 1
-                    block.call(context, whitelisted_plugins[hook.plugin_name])
-                  else
-                    block.call(context)
-                  end
-                end
+        hooks = hooks_to_run(name, whitelisted_plugins)
+        return if hooks.empty?
+
+        UI.message "- Running #{name.to_s.tr('_', ' ')} hooks" do
+          hooks.each do |hook|
+            UI.message "- #{hook.plugin_name} from " \
+                        "`#{hook.block.source_location.first}`" do
+              block = hook.block
+              if block.arity > 1
+                user_options = whitelisted_plugins[hook.plugin_name]
+                user_options = user_options.with_indifferent_access if user_options
+                block.call(context, user_options)
+              else
+                block.call(context)
               end
             end
           end

@@ -50,17 +50,19 @@ module Pod
     #
     attr_reader :public_headers
 
-    # @param [String, Pathname] root @see root
+    # Initialize a new instance
+    #
+    # @param [String, Pathname] root @see #root
     #
     def initialize(root)
       FileUtils.mkdir_p(root)
       @root = Pathname.new(root).realpath
-      @public_headers = HeadersStore.new(self, 'Public')
+      @public_headers = HeadersStore.new(self, 'Public', :public)
       @predownloaded_pods = []
-      @head_pods = []
       @checkout_sources = {}
       @development_pods = {}
       @pods_with_absolute_path = []
+      @stored_podspecs = {}
     end
 
     # @return [Lockfile] the manifest which contains the information about the
@@ -88,8 +90,8 @@ module Pod
         path = pod_dir(name)
         path.rmtree if path.exist?
       end
-      podspe_path = specification_path(name)
-      podspe_path.rmtree if podspe_path
+      podspec_path = specification_path(name)
+      podspec_path.rmtree if podspec_path
     end
 
     # Prepares the sandbox for a new installation removing any file that will
@@ -97,7 +99,6 @@ module Pod
     #
     def prepare
       FileUtils.rm_rf(headers_root)
-      FileUtils.rm_rf(target_support_files_root)
 
       FileUtils.mkdir_p(headers_root)
       FileUtils.mkdir_p(sources_root)
@@ -152,7 +153,7 @@ module Pod
     def pod_dir(name)
       root_name = Specification.root_name(name)
       if local?(root_name)
-        Pathname.new(development_pods[root_name])
+        Pathname.new(development_pods[root_name].dirname)
       else
         sources_root + root_name
       end
@@ -209,9 +210,9 @@ module Pod
     # @return [Specification] the specification if the file is found.
     #
     def specification(name)
-      if file = specification_path(name)
-        original_path = development_pods[name]
-        Dir.chdir(original_path || Dir.pwd) { Specification.from_file(file) }
+      @stored_podspecs[name] ||= if file = specification_path(name)
+                                   original_path = development_pods[name]
+                                   Specification.from_file(original_path || file)
       end
     end
 
@@ -239,36 +240,44 @@ module Pod
 
     # Stores a specification in the `Local Podspecs` folder.
     #
-    # @param  [Sandbox] sandbox
-    #         the sandbox where the podspec should be stored.
+    # @param  [String] name
+    #         the name of the pod
     #
-    # @param  [String, Pathname] podspec
+    # @param  [String, Pathname, Specification] podspec
     #         The contents of the specification (String) or the path to a
     #         podspec file (Pathname).
     #
-    # @todo   Store all the specifications (including those not originating
-    #         from external sources) so users can check them.
+    # @return [void]
+    #
     #
     def store_podspec(name, podspec, _external_source = false, json = false)
       file_name = json ? "#{name}.podspec.json" : "#{name}.podspec"
       output_path = specifications_root + file_name
-      output_path.dirname.mkpath
-      if podspec.is_a?(String)
+
+      case podspec
+      when String
         output_path.open('w') { |f| f.puts(podspec) }
-      else
+      when Pathname
         unless podspec.exist?
           raise Informative, "No podspec found for `#{name}` in #{podspec}"
         end
+        spec = Specification.from_file(podspec)
         FileUtils.copy(podspec, output_path)
+      when Specification
+        raise ArgumentError, 'can only store Specification objects as json' unless json
+        output_path.open('w') { |f| f.puts(podspec.to_pretty_json) }
+        spec = podspec.dup
+      else
+        raise ArgumentError, "Unknown type for podspec: #{podspec.inspect}"
       end
 
-      Dir.chdir(podspec.is_a?(Pathname) ? File.dirname(podspec) : Dir.pwd) do
-        spec = Specification.from_file(output_path)
+      spec ||= Specification.from_file(output_path)
+      spec.defined_in_file ||= output_path
 
-        unless spec.name == name
-          raise Informative, "The name of the given podspec `#{spec.name}` doesn't match the expected one `#{name}`"
-        end
+      unless spec.name == name
+        raise Informative, "The name of the given podspec `#{spec.name}` doesn't match the expected one `#{name}`"
       end
+      @stored_podspecs[spec.name] = spec
     end
 
     #-------------------------------------------------------------------------#
@@ -305,37 +314,6 @@ module Pod
     def predownloaded?(name)
       root_name = Specification.root_name(name)
       predownloaded_pods.include?(root_name)
-    end
-
-    #--------------------------------------#
-
-    # Marks a Pod as head.
-    #
-    # @param  [String] name
-    #         The name of the Pod.
-    #
-    # @return [void]
-    #
-    def store_head_pod(name)
-      root_name = Specification.root_name(name)
-      head_pods << root_name
-    end
-
-    # @return [Array<String>] The names of the pods that have been
-    #         marked as head.
-    #
-    attr_reader :head_pods
-
-    # Checks if a Pod should attempt to use the head source of the git repo.
-    #
-    # @param  [String] name
-    #         The name of the Pod.
-    #
-    # @return [Bool] Whether the Pod has been marked as head.
-    #
-    def head_pod?(name)
-      root_name = Specification.root_name(name)
-      head_pods.include?(root_name)
     end
 
     #--------------------------------------#
@@ -380,8 +358,8 @@ module Pod
     # @param  [String] name
     #         The name of the Pod.
     #
-    # @param  [#to_s] path
-    #         The local path where the Pod is stored.
+    # @param  [Pathname, String] path
+    #         The path to the local Podspec
     #
     # @param  [Bool] was_absolute
     #         True if the specified local path was absolute.
@@ -390,14 +368,13 @@ module Pod
     #
     def store_local_path(name, path, was_absolute = false)
       root_name = Specification.root_name(name)
-      development_pods[root_name] = path.to_s
+      path = Pathname.new(path) unless path.is_a?(Pathname)
+      development_pods[root_name] = path
       @pods_with_absolute_path << root_name if was_absolute
     end
 
-    # @return [Hash{String=>String}] The path of the Pods with a local source
+    # @return [Hash{String=>Pathname}] The path of the Pods' podspecs with a local source
     #         grouped by their root name.
-    #
-    # @todo   Rename (e.g. `pods_with_local_path`)
     #
     attr_reader :development_pods
 
@@ -409,8 +386,17 @@ module Pod
     # @return [Bool] Whether the Pod is locally sourced.
     #
     def local?(name)
+      !local_podspec(name).nil?
+    end
+
+    # @param  [String] name
+    #         The name of a locally specified Pod
+    #
+    # @return [Pathname] Path to the local Podspec of the Pod
+    #
+    def local_podspec(name)
       root_name = Specification.root_name(name)
-      !development_pods[root_name].nil?
+      development_pods[root_name]
     end
 
     #-------------------------------------------------------------------------#

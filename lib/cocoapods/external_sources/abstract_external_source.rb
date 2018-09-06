@@ -17,14 +17,23 @@ module Pod
       #
       attr_reader :podfile_path
 
-      # @param [String] name @see name
-      # @param [Hash] params @see params
-      # @param [String] podfile_path @see podfile_path
+      # @return [Boolean] Whether the source is allowed to touch the cache.
       #
-      def initialize(name, params, podfile_path)
+      attr_reader :can_cache
+      alias_method :can_cache?, :can_cache
+
+      # Initialize a new instance
+      #
+      # @param [String] name @see #name
+      # @param [Hash] params @see #params
+      # @param [String] podfile_path @see #podfile_path
+      # @param [Boolean] can_cache @see #can_cache
+      #
+      def initialize(name, params, podfile_path, can_cache = true)
         @name = name
         @params = params
         @podfile_path = podfile_path
+        @can_cache = can_cache
       end
 
       # @return [Bool] whether an external source source is equal to another
@@ -41,7 +50,7 @@ module Pod
 
       # Fetches the external source from the remote according to the params.
       #
-      # @param  [Sandbox] sandbox
+      # @param  [Sandbox] _sandbox
       #         the sandbox where the specification should be stored.
       #
       # @return [void]
@@ -58,6 +67,11 @@ module Pod
 
       protected
 
+      # Return the normalized path for a podspec for a relative declared path.
+      #
+      # @param  [String] declared_path
+      #         The path declared in the podfile.
+      #
       # @return [String] The uri of the podspec appending the name of the file
       #         and expanding it if necessary.
       #
@@ -98,10 +112,20 @@ module Pod
         title = "Pre-downloading: `#{name}` #{description}"
         UI.titled_section(title,  :verbose_prefix => '-> ') do
           target = sandbox.pod_dir(name)
-          download_result = Downloader.download(download_request, target)
-          spec = download_result.spec
+          begin
+            download_result = Downloader.download(download_request, target, :can_cache => can_cache)
+          rescue Pod::DSLError => e
+            raise Informative, "Failed to load '#{name}' podspec: #{e.message}"
+          rescue => e
+            raise Informative, "Failed to download '#{name}': #{e.message}"
+          end
 
+          spec = download_result.spec
           raise Informative, "Unable to find a specification for '#{name}'." unless spec
+
+          # since the podspec might be cleaned, we want the checksum to refer
+          # to the json in the sandbox
+          spec.defined_in_file = nil
 
           store_podspec(sandbox, spec)
           sandbox.store_pre_downloaded_pod(name)
@@ -134,17 +158,47 @@ module Pod
       # @return [void]
       #
       def store_podspec(sandbox, spec, json = false)
-        if spec.is_a? Pathname
-          spec = Specification.from_file(spec).to_pretty_json
-          json = true
-        elsif spec.is_a?(String) && !json
-          spec = Specification.from_string(spec, 'spec.podspec').to_pretty_json
-          json = true
-        elsif spec.is_a?(Specification)
-          spec = spec.to_pretty_json
-          json = true
+        begin
+          spec = case spec
+                 when Pathname
+                   Specification.from_file(spec)
+                 when String
+                   path = "#{name}.podspec"
+                   path << '.json' if json
+                   Specification.from_string(spec, path).tap { |s| s.defined_in_file = nil }
+                 when Specification
+                   spec.dup
+                 else
+                   raise "Unknown spec type: #{spec}"
+                 end
+        rescue Pod::DSLError => e
+          raise Informative, "Failed to load '#{name}' podspec: #{e.message}"
         end
-        sandbox.store_podspec(name, spec, true, json)
+
+        validate_podspec(spec)
+        sandbox.store_podspec(name, spec, true, true)
+      end
+
+      def validate_podspec(podspec)
+        defined_in_file = podspec.defined_in_file
+        podspec.defined_in_file = nil
+
+        validator = validator_for_podspec(podspec)
+        validator.quick = true
+        validator.allow_warnings = true
+        validator.ignore_public_only_results = true
+        Config.instance.with_changes(:silent => true) do
+          validator.validate
+        end
+        unless validator.validated?
+          raise Informative, "The `#{name}` pod failed to validate due to #{validator.failure_reason}:\n#{validator.results_message}"
+        end
+      ensure
+        podspec.defined_in_file = defined_in_file
+      end
+
+      def validator_for_podspec(podspec)
+        Validator.new(podspec, [], [])
       end
     end
   end

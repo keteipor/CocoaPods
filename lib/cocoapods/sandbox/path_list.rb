@@ -1,3 +1,6 @@
+require 'active_support/multibyte/unicode'
+require 'find'
+
 module Pod
   class Sandbox
     # The PathList class is designed to perform multiple glob matches against
@@ -13,12 +16,16 @@ module Pod
       # @return [Pathname] The root of the list whose files and directories
       #         are used to perform the matching operations.
       #
-      attr_accessor :root
+      attr_reader :root
 
-      # @param  [Pathname] root The root of the PathList.
+      # Initialize a new instance
+      #
+      # @param  [Pathname] root @see #root
       #
       def initialize(root)
-        @root = root
+        root_dir = ActiveSupport::Multibyte::Unicode.normalize(root.to_s)
+        @root = Pathname.new(root_dir)
+        @glob_cache = {}
       end
 
       # @return [Array<String>] The list of absolute the path of all the files
@@ -44,15 +51,24 @@ module Pod
         unless root.exist?
           raise Informative, "Attempt to read non existent folder `#{root}`."
         end
-        root_length  = root.to_s.length + 1
-        escaped_root = escape_path_for_glob(root)
-        paths  = Dir.glob(escaped_root + '**/*', File::FNM_DOTMATCH)
-        absolute_dirs  = paths.select { |path| File.directory?(path) }
-        relative_dirs  = absolute_dirs.map  { |p| p[root_length..-1] }
-        absolute_paths = paths.reject { |p| p == "#{root}/." || p == "#{root}/.." }
-        relative_paths = absolute_paths.map { |p| p[root_length..-1] }
-        @files = relative_paths - relative_dirs
-        @dirs  = relative_dirs.map { |d| d.gsub(/\/\.\.?$/, '') }.reject { |d| d == '.' || d == '..' } .uniq
+
+        dirs = []
+        files = []
+        root_length = root.cleanpath.to_s.length + File::SEPARATOR.length
+        Find.find(root.to_s) do |f|
+          directory = File.directory?(f)
+          f = f.slice(root_length, f.length - root_length)
+          next if f.nil?
+
+          (directory ? dirs : files) << f
+        end
+
+        dirs.sort_by!(&:upcase)
+        files.sort_by!(&:upcase)
+
+        @dirs = dirs
+        @files = files
+        @glob_cache = {}
       end
 
       #-----------------------------------------------------------------------#
@@ -61,23 +77,41 @@ module Pod
 
       # @!group Globbing
 
-      # @return [Array<Pathname>] Similar to {glob} but returns the absolute
-      #         paths.
+      # Similar to {glob} but returns the absolute paths.
+      #
+      # @param  [String,Array<String>] patterns
+      #         @see #relative_glob
+      #
+      # @param  [Hash] options
+      #         @see #relative_glob
+      #
+      # @return [Array<Pathname>]
       #
       def glob(patterns, options = {})
-        relative_glob(patterns, options).map { |p| root + p }
+        cache_key = options.merge(:patterns => patterns)
+        @glob_cache[cache_key] ||= relative_glob(patterns, options).map { |p| root.join(p) }
       end
 
-      # @return [Array<Pathname>] The list of relative paths that are case
-      #         insensitively matched by a given pattern. This method emulates
-      #         {Dir#glob} with the {File::FNM_CASEFOLD} option.
+      # The list of relative paths that are case insensitively matched by a
+      # given pattern. This method emulates {Dir#glob} with the
+      # {File::FNM_CASEFOLD} option.
       #
       # @param  [String,Array<String>] patterns
       #         A single {Dir#glob} like pattern, or a list of patterns.
       #
-      # @param  [String] dir_pattern
+      # @param  [Hash] options
+      #
+      # @option options [String] :dir_pattern
       #         An optional pattern to append to a pattern, if it is the path
       #         to a directory.
+      #
+      # @option options [Array<String>] :exclude_patterns
+      #         Exclude specific paths given by those patterns.
+      #
+      # @option options [Array<String>] :include_dirs
+      #         Additional paths to take into account for matching.
+      #
+      # @return [Array<Pathname>]
       #
       def relative_glob(patterns, options = {})
         return [] if patterns.empty?
@@ -91,23 +125,27 @@ module Pod
         else
           full_list = files
         end
+        patterns_array = Array(patterns)
+        exact_matches = (full_list & patterns_array).to_set
 
-        list = Array(patterns).map do |pattern|
-          if pattern.is_a?(String)
-            if directory?(pattern) && dir_pattern
-              pattern += '/' unless pattern.end_with?('/')
-              pattern +=  dir_pattern
-            end
-            expanded_patterns = dir_glob_equivalent_patterns(pattern)
-            full_list.select do |path|
-              expanded_patterns.any? do |p|
-                File.fnmatch(p, path, File::FNM_CASEFOLD | File::FNM_PATHNAME)
+        unless patterns_array.empty?
+          list = patterns_array.flat_map do |pattern|
+            if exact_matches.include?(pattern)
+              pattern
+            else
+              if directory?(pattern) && dir_pattern
+                pattern += '/' unless pattern.end_with?('/')
+                pattern += dir_pattern
+              end
+              expanded_patterns = dir_glob_equivalent_patterns(pattern)
+              full_list.select do |path|
+                expanded_patterns.any? do |p|
+                  File.fnmatch(p, path, File::FNM_CASEFOLD | File::FNM_PATHNAME)
+                end
               end
             end
-          else
-            full_list.select { |path| path.match(pattern) }
           end
-        end.flatten
+        end
 
         list = list.map { |path| Pathname.new(path) }
         if exclude_patterns
@@ -166,33 +204,14 @@ module Pod
         else
           patterns = [pattern]
           values_by_set.each do |set, values|
-            patterns = patterns.map do |old_pattern|
+            patterns = patterns.flat_map do |old_pattern|
               values.map do |value|
                 old_pattern.gsub(set, value)
               end
-            end.flatten
+            end
           end
           patterns
         end
-      end
-
-      # Escapes the glob metacharacters from a given path so it can used in
-      # Dir#glob and similar methods.
-      #
-      # @note   See CocoaPods/CocoaPods#862.
-      #
-      # @param  [String, Pathname] path
-      #         The path to escape.
-      #
-      # @return [Pathname] The escaped path.
-      #
-      def escape_path_for_glob(path)
-        result = path.to_s
-        characters_to_escape = ['[', ']', '{', '}', '?', '*']
-        characters_to_escape.each do |character|
-          result.gsub!(character, "\\#{character}")
-        end
-        Pathname.new(result)
       end
 
       #-----------------------------------------------------------------------#

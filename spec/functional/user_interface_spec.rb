@@ -6,7 +6,7 @@ module Pod
     extend SpecHelper::Command
 
     before do
-      @set = SourcesManager.search(Dependency.new('CocoaLumberjack'))
+      @set = config.sources_manager.search(Dependency.new('CocoaLumberjack'))
     end
 
     it 'presents the name, version, description, homepage and source of a specification set' do
@@ -47,20 +47,20 @@ module Pod
       output = UI.output
       output.should.include? 'Author:   Robbie Hanson'
       output.should.include? 'License:  BSD'
-      output.should.include? 'Platform: iOS 5.0 - OS X 10.7'
+      output.should.include? 'Platform: iOS 5.0 - macOS 10.7'
       output.should.include? 'Stars:    318'
       output.should.include? 'Forks:    42'
     end
 
     it 'should print at least one subspec' do
-      @set = SourcesManager.search(Dependency.new('RestKit'))
+      @set = config.sources_manager.search(Dependency.new('RestKit'))
       UI.pod(@set)
       output = UI.output
       output.should.include? 'RestKit/Network'
     end
 
     it 'presents only name and version of a specification set in :name_and_version mode' do
-      @set = SourcesManager.search_by_name('RestKit').first
+      @set = config.sources_manager.search_by_name('RestKit').first
       UI.pod(@set, :name_and_version)
       output = UI.output
       output.should.include? "RestKit #{@set.versions.first}"

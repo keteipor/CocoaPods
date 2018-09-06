@@ -6,19 +6,45 @@ module Pod
     # with existing headers of the podspec.
     #
     class ModuleMap
-      # @return [Target] the target represented by this Info.plist.
+      # @return [PodTarget, AggregateTarget] the target the module map is generated for.
       #
       attr_reader :target
 
-      # @return [Array] the private headers of the module
-      #
-      attr_accessor :private_headers
+      attr_reader :headers
 
-      # @param  [Target] target @see target
+      Header = Struct.new(:path, :umbrella, :private, :textual, :exclude, :size, :mtime) do
+        alias_method :private?, :private
+        def to_s
+          [
+            (:private if private?),
+            (:textual if textual),
+            (:umbrella if umbrella),
+            (:exclude if exclude),
+            'header',
+            %("#{path.to_s.gsub('"', '\"')}"),
+            attrs,
+          ].compact.join(' ')
+        end
+
+        def attrs
+          attrs = {
+            'size' => size,
+            'mtime' => mtime,
+          }.reject { |_k, v| v.nil? }
+          return nil if attrs.empty?
+          attrs.to_s
+        end
+      end
+
+      # Initialize a new instance
+      #
+      # @param  [PodTarget, AggregateTarget] target @see target
       #
       def initialize(target)
         @target = target
-        @private_headers = []
+        @headers = [
+          Header.new(target.umbrella_header_path.basename, true),
+        ]
       end
 
       # Generates and saves the Info.plist to the given path.
@@ -40,24 +66,33 @@ module Pod
       # @return [String]
       #
       def generate
-        result = <<-eos.strip_heredoc
-          framework module #{target.product_module_name} {
-            umbrella header "#{target.umbrella_header_path.basename}"
+        <<-MODULE_MAP.strip_heredoc
+#{module_specifier_prefix}module #{target.product_module_name}#{module_declaration_attributes} {
+  #{headers.join("\n  ")}
 
-            export *
-            module * { export * }
-        eos
-
-        result << "\n#{generate_private_header_exports}" unless private_headers.empty?
-        result << "}\n"
+  export *
+  module * { export * }
+}
+        MODULE_MAP
       end
 
       private
 
-      def generate_private_header_exports
-        private_headers.reduce('') do |string, header|
-          string << %(  private header "#{header}"\n)
+      # The prefix to `module` to prepend in the module map.
+      # Ensures that only framework targets have `framework` prepended.
+      #
+      def module_specifier_prefix
+        if target.requires_frameworks?
+          'framework '
+        else
+          ''
         end
+      end
+
+      # The suffix attributes to `module`.
+      #
+      def module_declaration_attributes
+        ''
       end
     end
   end

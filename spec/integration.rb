@@ -28,10 +28,10 @@
 #
 # - Have a way to track precisely the evolution of the artifacts (and of the
 #   UI) produced by CocoaPods (git diff of the after folders).
-# - Allow uses to submit pull requests with the environment necessary to
+# - Allow users to submit pull requests with the environment necessary to
 #   reproduce an issue.
 # - Have robust tests which don't depend on the programmatic interface of
-#   CocoaPods. These tests depend only the binary and its arguments an thus are
+#   CocoaPods. These tests depend only the binary and its arguments and thus are
 #   suitable for testing CP regardless of the implementation (they could even
 #   work for an Objective-C one)
 
@@ -44,11 +44,22 @@ $:.unshift((ROOT + 'spec').to_s)
 
 require 'rubygems'
 require 'bundler/setup'
+
 require 'pretty_bacon'
-require 'colored'
-require 'clintegracon'
+require 'CLIntegracon'
+require 'colored2'
+
+require 'cocoapods-core/lockfile'
+require 'cocoapods-core/yaml_helper'
+require 'fileutils'
+require 'integration/file_tree'
 require 'integration/xcodeproj_project_yaml'
 require 'tmpdir'
+
+if (developer_bin = `xcode-select -p 2>/dev/null`.strip) && $?.success?
+  developer_bin = Pathname(developer_bin) + 'usr/bin'
+  ENV['PATH'] = "#{developer_bin}#{File::PATH_SEPARATOR}#{ENV['PATH']}"
+end
 
 CLIntegracon.configure do |c|
   c.spec_path = ROOT + 'spec/cocoapods-integration-specs'
@@ -59,22 +70,40 @@ CLIntegracon.configure do |c|
     # Creates a YAML representation of the Xcodeproj files
     # which should be used as a reference for comparison.
     xcodeproj = Xcodeproj::Project.open(path)
-    File.open("#{path}.yaml", 'w') do |file|
-      file.write xcodeproj.to_yaml
-    end
+    yaml = xcodeproj.to_yaml
+    path.rmtree
+    path.open('w') { |f| f << yaml }
+  end
+
+  c.transform_produced '**/*.framework' do |path|
+    tree = FileTree.to_tree(path)
+    path.rmtree
+    path.open('w') { |f| f << tree }
   end
 
   # Register special handling for YAML files
-  paths = [/Podfile\.lock/, /Manifest\.lock$/, /xcodeproj\.yaml$/]
-  c.has_special_handling_for(*paths) do |path|
-    # Remove CocoaPods version
-    yaml = File.open(path) { |f| YAML.load(f) }
-    yaml.delete('COCOAPODS')
-    YAML.dump(yaml)
+  c.transform_produced %r{(^|/)(Podfile|Manifest).lock$} do |path|
+    # Remove CocoaPods version & Podfile checksum
+    yaml = YAML.load(path.read)
+    deleted_keys = ['COCOAPODS', 'PODFILE CHECKSUM']
+    deleted_keys.each { |key| yaml.delete(key) }
+    keys_hint = Pod::Lockfile::HASH_KEY_ORDER - deleted_keys
+    path.open('w') { |f| f << Pod::YAMLHelper.convert_hash(yaml, keys_hint, "\n\n") }
+  end
+
+  c.preprocess('**/*.xcodeproj', %r{(^|/)(Podfile|Manifest).lock$}) do |path|
+    keys_hint = if path.extname == '.lock'
+                  Pod::Lockfile::HASH_KEY_ORDER
+                end
+    contents = path.read
+    if contents.strip.empty?
+      contents
+    else
+      Pod::YAMLHelper.convert_hash(YAML.load(contents), keys_hint, "\n\n")
+    end
   end
 
   # So we don't need to compare them directly
-  c.ignores /\.xcodeproj\//
   c.ignores 'Podfile'
 
   # Ignore certain OSX files
@@ -85,7 +114,7 @@ CLIntegracon.configure do |c|
 
   # Needed for some test cases
   c.ignores '*.podspec'
-  c.ignores 'PodTest-hg-source/**'
+  c.ignores 'PodTest-hg-source/**/*'
 
   c.hook_into :bacon
 end
@@ -97,27 +126,68 @@ describe_cli 'pod' do
   subject do |s|
     s.executable = "ruby #{ROOT + 'bin/pod'}"
     s.environment_vars = {
-      'CP_REPOS_DIR'             => ROOT + 'spec/fixtures/spec-repos',
-      'COCOAPODS_SKIP_CACHE'     => 'TRUE',
-      'XCODEPROJ_DISABLE_XCPROJ' => 'TRUE',
-      'CLAIDE_DISABLE_AUTO_WRAP' => 'TRUE',
+      'CLAIDE_DISABLE_AUTO_WRAP'            => 'TRUE',
+      'COCOAPODS_DISABLE_STATS'             => 'TRUE',
+      'COCOAPODS_SKIP_CACHE'                => 'TRUE',
+      'COCOAPODS_VALIDATOR_SKIP_XCODEBUILD' => 'TRUE',
+      'CP_REPOS_DIR'                        => ROOT + 'spec/fixtures/spec-repos',
     }
     s.default_args = [
       '--verbose',
       '--no-ansi',
     ]
+    s.replace_path %r{#{CLIntegracon.shared_config.temp_path}/\w+/transformed}, 'PROJECT'
     s.replace_path ROOT.to_s, 'ROOT'
     s.replace_path `which git`.chomp, 'GIT_BIN'
     s.replace_path `which hg`.chomp, 'HG_BIN' if has_mercurial
+    s.replace_path `which bash`.chomp, 'BASH_BIN'
+    s.replace_path `which curl`.chomp, 'CURL_BIN'
     s.replace_user_path 'Library/Caches/CocoaPods', 'CACHES_DIR'
-    s.replace_pattern /#{Dir.tmpdir}\/[\w-]+/i, 'TMPDIR'
+    s.replace_pattern /#{Dir.tmpdir}\/[\w-]+/io, 'TMPDIR'
     s.replace_pattern /\d{4}-\d\d-\d\d \d\d:\d\d:\d\d [-+]\d{4}/, '<#DATE#>'
     s.replace_pattern /\(Took \d+.\d+ seconds\)/, '(Took <#DURATION#> seconds)'
+
+    # This was changed in a very recent git version
+    s.replace_pattern /git checkout -b <new-branch-name>/, 'git checkout -b new_branch_name'
+    s.replace_pattern /[ \t]+(\r?$)/, '\1'
+
+    # git sometimes prints this, but not always ¯\_(ツ)_/¯
+    s.replace_pattern /^\s*Checking out files.*done\./, ''
+
+    s.replace_path %r{
+      `[^`]*? # The opening backtick on a plugin path
+      ([[[:alnum:]]_+-]+?) # The plugin name
+      (- ([[:xdigit:]]+ | #{Gem::Version::VERSION_PATTERN}))? # The version or SHA
+      /lib/cocoapods_plugin.rb # The actual plugin file that gets loaded
+    }iox, '`\1/lib/cocoapods_plugin.rb'
+
+    s.replace_pattern %r{
+      ^(\s* \$ \s (CURL_BIN | #{`which curl`.strip}) .* \n)
+      ^\s* % \s* Total .* \n
+      ^\s* Dload \s* Upload .* \n
+      (^\s* [[:cntrl:]] .* \n)+
+    }iox, "\\1\n"
   end
 
   describe 'Pod install' do
     # Test installation with no integration
     # Test subspecs inheritance
+
+    #--------------------------------------#
+
+    describe 'Pod init' do
+      describe 'Initializes a Podfile with a single platform' do
+        behaves_like cli_spec 'init_single_platform',
+                              'init'
+      end
+    end
+
+    #--------------------------------------#
+
+    describe 'Integrates a project with an empty Podfile with CocoaPods' do
+      behaves_like cli_spec 'install_no_dependencies',
+                            'install --no-repo-update'
+    end
 
     describe 'Integrates a project with CocoaPods' do
       behaves_like cli_spec 'install_new',
@@ -156,6 +226,11 @@ describe_cli 'pod' do
 
     describe 'Installs a Pod with a local source' do
       behaves_like cli_spec 'install_local_source',
+                            'install --no-repo-update'
+    end
+
+    describe 'Installs a pod with multiple test specs' do
+      behaves_like cli_spec 'install_multiple_test_specs',
                             'install --no-repo-update'
     end
 
@@ -209,9 +284,21 @@ describe_cli 'pod' do
                             'install --no-repo-update'
     end
 
+    describe 'Integrates a Pod with a header mappings directory' do
+      behaves_like cli_spec 'install_header_mappings_dir',
+                            'install --no-repo-update'
+    end
+
     describe 'Integrates a Pod using non Objective-C source files' do
       behaves_like cli_spec 'install_non_objective_c_files',
                             'install --no-repo-update'
+    end
+
+    describe 'Integrates a Pod using a dynamic vendored framework' do
+      # We have to disable verbose mode by adding --no-verbose here,
+      # otherwise curl output is included in execution output.
+      behaves_like cli_spec 'install_vendored_dynamic_framework',
+                            'install --no-repo-update --no-verbose'
     end
 
     # @todo add tests for all the hooks API
@@ -223,6 +310,21 @@ describe_cli 'pod' do
 
     describe 'Uses Lockfile checkout options' do
       behaves_like cli_spec 'install_using_checkout_options',
+                            'install --no-repo-update'
+    end
+
+    describe 'Integrates a pod with search paths inheritance' do
+      behaves_like cli_spec 'install_search_paths_inheritance',
+                            'install --no-repo-update'
+    end
+
+    describe 'Integrates a pod with static swift libraries and objective c modules' do
+      behaves_like cli_spec 'install_static_swift_modules',
+                            'install --no-repo-update'
+    end
+
+    describe 'Integrates a Pod with circular subspec dependencies' do
+      behaves_like cli_spec 'install_circular_subspec_dependency',
                             'install --no-repo-update'
     end
   end
@@ -256,14 +358,11 @@ describe_cli 'pod' do
       behaves_like cli_spec 'spec_lint',
                             'spec lint --quick'
     end
-  end
 
-  #--------------------------------------#
-
-  describe 'Pod init' do
-    describe 'Initializes a Podfile with a single platform' do
-      behaves_like cli_spec 'init_single_platform',
-                            'init'
+    describe 'Lints a remote Pod' do
+      spec_url = 'https://github.com/CocoaPods/Specs/raw/2d939ca0abb4172b9ef087d784b43e0696109e7c/Specs/A2DynamicDelegate/2.0.2/A2DynamicDelegate.podspec.json'
+      behaves_like cli_spec 'spec_lint_remote',
+                            "spec lint --quick --allow-warnings --silent #{spec_url}"
     end
   end
 

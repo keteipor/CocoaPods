@@ -6,7 +6,7 @@ module Pod
       self.summary = 'Setup the CocoaPods environment'
 
       self.description = <<-DESC
-        Creates a directory at `~/.cocoapods/repos` which will hold your spec-repos.
+        Creates a directory at `#{Config.instance.repos_dir}` which will hold your spec-repos.
         This is where it will create a clone of the public `master` spec-repo from:
 
             https://github.com/CocoaPods/Specs
@@ -14,19 +14,8 @@ module Pod
         If the clone already exists, it will ensure that it is up-to-date.
       DESC
 
-      def self.options
-        [
-          ['--no-shallow', 'Clone full history so push will work'],
-        ].concat(super)
-      end
-
       extend Executable
       executable :git
-
-      def initialize(argv)
-        @shallow = argv.flag?('shallow', true)
-        super
-      end
 
       def run
         UI.section 'Setting up CocoaPods master repo' do
@@ -34,8 +23,6 @@ module Pod
             set_master_repo_url
             set_master_repo_branch
             update_master_repo
-          elsif old_master_repo_dir.exist?
-            migrate_repos
           else
             add_master_repo
           end
@@ -47,22 +34,6 @@ module Pod
       #--------------------------------------#
 
       # @!group Setup steps
-
-      # Migrates any repos from the old directory structure to the new
-      # directory structure.
-      #
-      # @todo: Remove by 1.0
-      #
-      def migrate_repos
-        config.repos_dir.mkpath
-        Dir.foreach old_master_repo_dir.parent do |repo_dir|
-          source_repo_dir = old_master_repo_dir.parent + repo_dir
-          target_repo_dir = config.repos_dir + repo_dir
-          if repo_dir !~ /\.+/ && source_repo_dir != config.repos_dir
-            FileUtils.mv source_repo_dir, target_repo_dir
-          end
-        end
-      end
 
       # Sets the url of the master repo according to whether it is push.
       #
@@ -79,8 +50,7 @@ module Pod
       # @return [void]
       #
       def add_master_repo
-        cmd = ['master', url, 'master']
-        cmd << '--shallow' if @shallow
+        cmd = ['master', url, 'master', '--progress']
         Repo::Add.parse(cmd).run
       end
 
@@ -89,7 +59,8 @@ module Pod
       # @return [void]
       #
       def update_master_repo
-        SourcesManager.update('master', true)
+        show_output = !config.silent?
+        config.sources_manager.update('master', show_output)
       end
 
       # Sets the repo to the master branch.
@@ -125,13 +96,7 @@ module Pod
       # @return [Pathname] the directory of the master repo.
       #
       def master_repo_dir
-        SourcesManager.master_repo_dir
-      end
-
-      # @return [Pathname] the directory of the old master repo.
-      #
-      def old_master_repo_dir
-        Pathname.new('~/.cocoapods/master').expand_path
+        config.sources_manager.master_repo_dir
       end
     end
   end

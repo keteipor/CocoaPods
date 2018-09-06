@@ -12,6 +12,8 @@ module Pod
       #
       attr_reader :path
 
+      # Initialize a new instance
+      #
       # @param [Specification] spec the root specification of the Pod.
       # @param [Pathname] path the folder where the source of the Pod is located.
       #
@@ -56,10 +58,15 @@ module Pod
         return unless spec.prepare_command
         UI.section(' > Running prepare command', '', 1) do
           Dir.chdir(path) do
-            ENV.delete('CDPATH')
-            prepare_command = spec.prepare_command.strip_heredoc.chomp
-            full_command = "\nset -e\n" + prepare_command
-            bash!('-c', full_command)
+            begin
+              ENV.delete('CDPATH')
+              ENV['COCOAPODS_VERSION'] = Pod::VERSION
+              prepare_command = spec.prepare_command.strip_heredoc.chomp
+              full_command = "\nset -e\n" + prepare_command
+              bash!('-c', full_command)
+            ensure
+              ENV.delete('COCOAPODS_VERSION')
+            end
           end
         end
       end

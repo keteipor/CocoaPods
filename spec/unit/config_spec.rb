@@ -31,8 +31,12 @@ module Pod
       end
 
       it 'allows to specify the home dir with an environment variable' do
-        ENV['CP_HOME_DIR'] = '~/custom_home_dir'
-        @config.home_dir.should == Pathname.new('~/custom_home_dir').expand_path
+        ENV['CP_HOME_DIR'] = (SpecHelper.temporary_directory + 'custom_home_dir').to_s
+        @config = Config.new(false)
+        @config.home_dir.should == (SpecHelper.temporary_directory + 'custom_home_dir').expand_path
+        @config.repos_dir.should == (SpecHelper.temporary_directory + 'custom_home_dir/repos').expand_path
+        @config.templates_dir.should == (SpecHelper.temporary_directory + 'custom_home_dir/templates').expand_path
+        @config.cache_root.should == (SpecHelper.temporary_directory + 'custom_home_dir/cache').expand_path
         ENV.delete('CP_HOME_DIR')
       end
 
@@ -40,6 +44,85 @@ module Pod
         ENV['CP_REPOS_DIR'] = '~/custom_repos_dir'
         @config.repos_dir.should == Pathname.new('~/custom_repos_dir').expand_path
         ENV.delete('CP_REPOS_DIR')
+      end
+
+      it 'allows to specify the repos dir with an environment variable that overrides home dir variable' do
+        ENV['CP_HOME_DIR'] = '~/custom_home_dir'
+        ENV['CP_REPOS_DIR'] = '~/custom_repos_dir'
+        @config.repos_dir.should == Pathname.new('~/custom_repos_dir').expand_path
+        ENV.delete('CP_REPOS_DIR')
+        ENV.delete('CP_HOME_DIR')
+      end
+
+      it 'allows to specify the cache dir with an environment variable' do
+        ENV['CP_CACHE_DIR'] = (SpecHelper.temporary_directory + 'custom_cache_dir').to_s
+        @config = Config.new(false)
+        @config.cache_root.should == (SpecHelper.temporary_directory + 'custom_cache_dir').expand_path
+        ENV.delete('CP_CACHE_DIR')
+      end
+
+      it 'allows to specify the cache dir with a config file' do
+        ENV['CP_HOME_DIR'] = SpecHelper.temporary_directory.to_s
+        config = { :cache_root => 'config_cache_dir' }
+        File.write(SpecHelper.temporary_directory + 'config.yaml', config.to_yaml)
+        @config = Config.new
+        @config.cache_root.should == Pathname.new('config_cache_dir').expand_path
+        File.delete(SpecHelper.temporary_directory + 'config.yaml')
+        ENV.delete('CP_HOME_DIR')
+      end
+
+      it 'allows cache dir environment variable to override the config file' do
+        ENV['CP_HOME_DIR'] = SpecHelper.temporary_directory.to_s
+        config = { :cache_root => 'config_cache_dir' }
+        File.write(SpecHelper.temporary_directory + 'config.yaml', config.to_yaml)
+        ENV['CP_CACHE_DIR'] = (SpecHelper.temporary_directory + 'custom_cache_dir').to_s
+        @config = Config.new
+        @config.cache_root.should == (SpecHelper.temporary_directory + 'custom_cache_dir').expand_path
+        File.delete(SpecHelper.temporary_directory + 'config.yaml')
+        ENV.delete('CP_CACHE_DIR')
+        ENV.delete('CP_HOME_DIR')
+      end
+    end
+
+    #-------------------------------------------------------------------------#
+
+    describe '#with_changes' do
+      it 'doesnt raise when using an unknown key' do
+        should.not.raise { @config.with_changes(:foo_bar => false) }
+      end
+
+      it 'uses the new value inside the block' do
+        @config.verbose = true
+        called = false
+        @config.with_changes(:verbose => false) do
+          @config.should.not.be.verbose
+          called = true
+        end
+        called.should.be.true
+      end
+
+      it 'reverts to the previous value after the block' do
+        @config.verbose = true
+        @config.with_changes(:verbose => false)
+        @config.should.be.verbose
+      end
+
+      it 'reverts to the previous value even when an exception is raised' do
+        @config.verbose = true
+        should.raise do
+          @config.with_changes(:verbose => false) do
+            raise 'foo'
+          end
+        end
+        @config.should.be.verbose
+      end
+
+      it 'returns the return value of the block' do
+        @config.with_changes({}) do
+          'foo'
+        end.should == 'foo'
+
+        @config.with_changes({}).should.be.nil
       end
     end
 
@@ -67,6 +150,15 @@ module Pod
       it 'it returns the working directory as the installation root if no Podfile can be found' do
         Dir.chdir(temporary_directory) do
           @config.installation_root.should == temporary_directory
+        end
+      end
+
+      it 'returns the working directory correctly when it includes unicode characters' do
+        unicode_directory = temporary_directory + "ü"
+        FileUtils.mkdir(unicode_directory)
+        Dir.chdir(unicode_directory) do
+          File.open('Podfile', 'w') {}
+          @config.installation_root.to_s.should == unicode_directory.to_s
         end
       end
 
@@ -119,7 +211,7 @@ module Pod
       end
 
       it 'returns the search index file' do
-        @config.search_index_file.to_s.should.end_with?('search_index.yaml')
+        @config.search_index_file.to_s.should.end_with?('search_index.json')
       end
     end
 
@@ -132,10 +224,6 @@ module Pod
 
       it 'does not print verbose information' do
         @config.should.not.be.verbose
-      end
-
-      it 'cleans SCM dirs in dependency checkouts' do
-        @config.should.clean
       end
 
       it 'returns the cache root' do

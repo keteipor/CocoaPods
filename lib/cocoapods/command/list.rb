@@ -5,10 +5,10 @@ module Pod
       self.description = 'Lists all available pods.'
 
       def self.options
-        [[
-          '--update', 'Run `pod repo update` before listing',
-          '--stats',  'Show additional stats (like GitHub watchers and forks)'
-        ]].concat(super)
+        [
+          ['--update', 'Run `pod repo update` before listing'],
+          ['--stats',  'Show additional stats (like GitHub watchers and forks)'],
+        ].concat(super)
       end
 
       def initialize(argv)
@@ -20,7 +20,7 @@ module Pod
       def run
         update_if_necessary!
 
-        sets = SourcesManager.aggregate.all_sets
+        sets = config.sources_manager.aggregate.all_sets
         sets.each { |set| UI.pod(set, :name_and_version) }
         UI.puts "\n#{sets.count} pods were found"
       end

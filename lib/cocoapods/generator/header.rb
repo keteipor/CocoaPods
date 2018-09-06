@@ -17,8 +17,10 @@ module Pod
 
       # @return [Array<String>] The list of the modules to import.
       #
-      attr_accessor :module_imports
+      attr_reader :module_imports
 
+      # Initialize a new instance
+      #
       # @param  [Symbol] platform
       #         @see platform
       #
@@ -38,8 +40,17 @@ module Pod
       #
       def generate
         result = ''
+        result << "#ifdef __OBJC__\n"
         result << generate_platform_import_header
-
+        result << "#else\n"
+        result << "#ifndef FOUNDATION_EXPORT\n"
+        result << "#if defined(__cplusplus)\n"
+        result << "#define FOUNDATION_EXPORT extern \"C\"\n"
+        result << "#else\n"
+        result << "#define FOUNDATION_EXPORT extern\n"
+        result << "#endif\n"
+        result << "#endif\n"
+        result << "#endif\n"
         result << "\n"
 
         imports.each do |import|
@@ -80,7 +91,12 @@ module Pod
       # @return [String]
       #
       def generate_platform_import_header
-        "#import #{platform == :ios ? '<UIKit/UIKit.h>' : '<Cocoa/Cocoa.h>'}\n"
+        case platform.name
+        when :ios then "#import <UIKit/UIKit.h>\n"
+        when :tvos then "#import <UIKit/UIKit.h>\n"
+        when :osx then "#import <Cocoa/Cocoa.h>\n"
+        else "#import <Foundation/Foundation.h>\n"
+        end
       end
     end
   end
