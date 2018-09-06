@@ -78,8 +78,8 @@ module Pod
             framework_paths = target.dependent_targets_for_test_spec(test_spec).flat_map do |dependent_target|
               spec_paths_to_include = dependent_target.non_test_specs.map(&:name)
               spec_paths_to_include << test_spec.name if dependent_target == target
-              dependent_target.framework_paths.values_at(*spec_paths_to_include).flatten.compact
-            end.uniq
+              dependent_target.framework_paths.values_at(*spec_paths_to_include).flatten.compact.uniq
+            end
             input_paths = []
             output_paths = []
             unless framework_paths.empty?

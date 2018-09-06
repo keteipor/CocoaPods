@@ -8,7 +8,7 @@ module Pod
     #
     attr_reader :dsym_path
 
-    def initialize(source_path, dsym_path)
+    def initialize(source_path, dsym_path = nil)
       @source_path = source_path
       @dsym_path = dsym_path
     end
@@ -24,7 +24,11 @@ module Pod
     alias eql? ==
 
     def hash
-      source_path.hash
+      if (dsym = dsym_path)
+        [source_path, dsym].hash
+      else
+        source_path.hash
+      end
     end
   end
 end
