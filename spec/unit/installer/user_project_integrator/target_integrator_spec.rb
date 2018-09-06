@@ -17,7 +17,7 @@ module Pod
         user_build_configurations = { 'Release' => :release, 'Debug' => :debug }
         @pod_bundle = AggregateTarget.new(config.sandbox, false, user_build_configurations, [], Platform.ios, target_definition, project_path.dirname, @project, [@target.uuid], {})
         @pod_bundle.stubs(:resource_paths_by_config).returns('Release' => %w(${PODS_ROOT}/Lib/Resources/image.png))
-        @pod_bundle.stubs(:framework_paths_by_config).returns('Release' => [Framework.new('${PODS_BUILD_DIR}/Lib/Lib.framework', nil)])
+        @pod_bundle.stubs(:framework_paths_by_config).returns('Release' => [FrameworkPaths.new('${PODS_BUILD_DIR}/Lib/Lib.framework', nil)])
         configuration = Xcodeproj::Config.new(
           'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) COCOAPODS=1',
         )
@@ -394,7 +394,7 @@ module Pod
         end
 
         it 'removes embed frameworks phase if it becomes empty' do
-          debug_non_vendored_framework = Framework.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/DebugCompiledFramework.framework', nil)
+          debug_non_vendored_framework = FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/DebugCompiledFramework.framework', nil)
           framework_paths_by_config = {
             'Debug' => [debug_non_vendored_framework],
           }
@@ -415,13 +415,13 @@ module Pod
         end
 
         it 'adds embed frameworks build phase input and output paths for vendored and non vendored frameworks' do
-          debug_vendored_framework = Framework.new('${PODS_ROOT}/DebugVendoredFramework/ios/DebugVendoredFramework.framework',
-                                                   '${PODS_ROOT}/DebugVendoredFramework/ios/DebugVendoredFramework.framework.dSYM')
+          debug_vendored_framework = FrameworkPaths.new('${PODS_ROOT}/DebugVendoredFramework/ios/DebugVendoredFramework.framework',
+                                                        '${PODS_ROOT}/DebugVendoredFramework/ios/DebugVendoredFramework.framework.dSYM')
 
-          debug_non_vendored_framework = Framework.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/DebugCompiledFramework.framework', nil)
+          debug_non_vendored_framework = FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/DebugCompiledFramework.framework', nil)
 
-          release_vendored_framework = Framework.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/ReleaseVendoredFramework.framework',
-                                                     '${PODS_ROOT}/ReleaseVendoredFramework/ios/ReleaseVendoredFramework.framework.dSYM')
+          release_vendored_framework = FrameworkPaths.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/ReleaseVendoredFramework.framework',
+                                                          '${PODS_ROOT}/ReleaseVendoredFramework/ios/ReleaseVendoredFramework.framework.dSYM')
           framework_paths_by_config = {
             'Debug' => [debug_vendored_framework, debug_non_vendored_framework],
             'Release' => [release_vendored_framework],
@@ -448,15 +448,15 @@ module Pod
         end
 
         it 'adds embed frameworks build phase input and output paths for vendored and non vendored frameworks without duplicate' do
-          debug_vendored_framework = Framework.new('${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework',
-                                                   '${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework.dSYM')
+          debug_vendored_framework = FrameworkPaths.new('${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework',
+                                                        '${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework.dSYM')
 
-          debug_non_vendored_framework = Framework.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/CompiledFramework.framework', nil)
+          debug_non_vendored_framework = FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/CompiledFramework.framework', nil)
 
-          release_vendored_framework = Framework.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework',
-                                                     '${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework.dSYM')
+          release_vendored_framework = FrameworkPaths.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework',
+                                                          '${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework.dSYM')
 
-          release_non_vendored_framework = Framework.new('${BUILT_PRODUCTS_DIR}/ReleaseCompiledFramework/CompiledFramework.framework', nil)
+          release_non_vendored_framework = FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/ReleaseCompiledFramework/CompiledFramework.framework', nil)
 
           framework_paths_by_config = {
             'Debug' => [debug_vendored_framework, debug_non_vendored_framework],
@@ -615,12 +615,12 @@ module Pod
       describe 'Script paths' do
         it 'calculates the output paths of the embed frameworks script' do
           paths = [
-            Framework.new('${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework',
-                          '${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework.dSYM'),
-            Framework.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/CompiledFramework.framework', nil),
-            Framework.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework',
-                          '${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework.dSYM'),
-            Framework.new('${BUILT_PRODUCTS_DIR}/ReleaseCompiledFramework/CompiledFramework.framework', nil),
+              FrameworkPaths.new('${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework',
+                                 '${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework.dSYM'),
+              FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/CompiledFramework.framework', nil),
+              FrameworkPaths.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework',
+                                 '${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework.dSYM'),
+              FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/ReleaseCompiledFramework/CompiledFramework.framework', nil),
           ]
           TargetIntegrator.framework_output_paths(paths).sort.should == %w(
             ${DWARF_DSYM_FOLDER_PATH}/SomeFramework.framework.dSYM

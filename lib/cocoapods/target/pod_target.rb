@@ -1,3 +1,5 @@
+require 'cocoapods/target/framework_paths'
+
 module Pod
   # Stores the information relative to the target used to compile a single Pod.
   # A pod can have one or more activated spec, subspecs and test specs.
@@ -244,7 +246,7 @@ module Pod
       !test_specs.empty?
     end
 
-    # @return [Hash{String=>Array<Framework>}] The vendored and non vendored framework paths this target
+    # @return [Hash{String=>Array<FrameworkPaths>}] The vendored and non vendored framework paths this target
     #         depends upon keyed by spec name. For the root spec and subspecs the framework path of the target itself
     #         is included.
     #
@@ -261,10 +263,10 @@ module Pod
             dsym_source = if dsym_path.exist?
                             "${PODS_ROOT}/#{relative_path_to_sandbox}.dSYM"
                           end
-            Framework.new(framework_source, dsym_source)
+            FrameworkPaths.new(framework_source, dsym_source)
           end
           if !file_accessor.spec.test_specification? && should_build? && requires_frameworks? && !static_framework?
-            frameworks << Framework.new(build_product_path('${BUILT_PRODUCTS_DIR}'), nil)
+            frameworks << FrameworkPaths.new(build_product_path('${BUILT_PRODUCTS_DIR}'), nil)
           end
           hash[file_accessor.spec.name] = frameworks
         end

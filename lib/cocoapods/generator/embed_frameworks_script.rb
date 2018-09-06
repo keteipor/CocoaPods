@@ -1,12 +1,14 @@
+require 'cocoapods/target/framework_paths'
+
 module Pod
   module Generator
     class EmbedFrameworksScript
-      # @return [Hash{String => Array<Framework>}] Multiple lists of frameworks per
+      # @return [Hash{String => Array<FrameworkPaths>}] Multiple lists of frameworks per
       #         configuration.
       #
       attr_reader :frameworks_by_config
 
-      # @param  [Hash{String => Array<Framework>] frameworks_by_config
+      # @param  [Hash{String => Array<FrameworkPaths>] frameworks_by_config
       #         @see #frameworks_by_config
       #
       def initialize(frameworks_by_config)

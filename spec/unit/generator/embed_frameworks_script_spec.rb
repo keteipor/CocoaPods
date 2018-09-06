@@ -4,9 +4,9 @@ module Pod
   describe Generator::EmbedFrameworksScript do
     it 'returns the embed frameworks script' do
       frameworks = {
-        'Debug' => [Framework.new('Pods/Loopback.framework', 'Pods/Loopback.framework.dSYM'),
-                    Framework.new('Reveal.framework', nil)],
-        'Release' => [Framework.new('CrashlyticsFramework.framework', nil)],
+        'Debug' => [FrameworkPaths.new('Pods/Loopback.framework', 'Pods/Loopback.framework.dSYM'),
+                    FrameworkPaths.new('Reveal.framework', nil)],
+        'Release' => [FrameworkPaths.new('CrashlyticsFramework.framework', nil)],
       }
       generator = Pod::Generator::EmbedFrameworksScript.new(frameworks)
       generator.send(:script).should.include <<-SH.strip_heredoc

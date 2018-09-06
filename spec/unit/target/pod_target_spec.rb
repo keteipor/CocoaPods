@@ -597,7 +597,7 @@ module Pod
         it 'returns the correct framework paths' do
           @test_pod_target.framework_paths.should == {
             'WatermelonLib' => [
-              Framework.new('${BUILT_PRODUCTS_DIR}/WatermelonLib/WatermelonLib.framework', nil),
+                FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/WatermelonLib/WatermelonLib.framework', nil),
             ],
             'WatermelonLib/Tests' => [],
             'WatermelonLib/SnapshotTests' => [],

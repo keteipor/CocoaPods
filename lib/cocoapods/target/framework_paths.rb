@@ -1,5 +1,5 @@
 module Pod
-  class Framework
+  class FrameworkPaths
     # @return [String] the path to the .framework
     #
     attr_reader :source_path
