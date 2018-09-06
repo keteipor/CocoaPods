@@ -615,12 +615,12 @@ module Pod
       describe 'Script paths' do
         it 'calculates the output paths of the embed frameworks script' do
           paths = [
-              FrameworkPaths.new('${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework',
-                                 '${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework.dSYM'),
-              FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/CompiledFramework.framework'),
-              FrameworkPaths.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework',
-                                 '${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework.dSYM'),
-              FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/ReleaseCompiledFramework/CompiledFramework.framework'),
+            FrameworkPaths.new('${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework',
+                               '${PODS_ROOT}/DebugVendoredFramework/ios/SomeFramework.framework.dSYM'),
+            FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/DebugCompiledFramework/CompiledFramework.framework'),
+            FrameworkPaths.new('${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework',
+                               '${PODS_ROOT}/ReleaseVendoredFramework/ios/SomeFramework.framework.dSYM'),
+            FrameworkPaths.new('${BUILT_PRODUCTS_DIR}/ReleaseCompiledFramework/CompiledFramework.framework'),
           ]
           TargetIntegrator.framework_output_paths(paths).sort.should == %w(
             ${DWARF_DSYM_FOLDER_PATH}/SomeFramework.framework.dSYM
