@@ -7,10 +7,11 @@ module Pod
       podspec_path = fixture('integration/Reachability/Reachability.podspec')
       dependency = Dependency.new('Reachability', :podspec => podspec_path.to_s)
       podfile_path = fixture('integration/Podfile')
-      @subject = ExternalSources.from_dependency(dependency, podfile_path)
+      @subject = ExternalSources.from_dependency(dependency, podfile_path, true)
     end
 
     it 'creates a copy of the podspec' do
+      config.sandbox.specifications_root.mkpath
       @subject.fetch(config.sandbox)
       path = config.sandbox.specifications_root + 'Reachability.podspec.json'
       path.should.exist?
@@ -57,12 +58,12 @@ module Pod
     describe 'http source' do
       it 'raises an Informative error if the specified url fails to load' do
         @subject.stubs(:params).returns(:podspec => 'https://github.com/username/TSMessages/TSMessages.podspec')
+        WebMock.enable!
         WebMock::API.stub_request(:get, 'https://github.com/username/TSMessages/TSMessages.podspec').
           to_return(:status => 404)
 
         lambda { @subject.fetch(config.sandbox) }.should.raise(Informative).
           message.should.match(/Failed to fetch podspec for/)
-        WebMock.reset!
       end
     end
   end

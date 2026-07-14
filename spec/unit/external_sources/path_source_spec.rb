@@ -6,20 +6,11 @@ module Pod
       params = { :path => fixture('integration/Reachability') }
       dependency = Dependency.new('Reachability', params)
       podfile_path = fixture('integration/Podfile')
-      @subject = ExternalSources.from_dependency(dependency, podfile_path)
+      @subject = ExternalSources.from_dependency(dependency, podfile_path, true)
+      config.sandbox.specifications_root.mkpath
     end
 
     it 'creates a copy of the podspec' do
-      @subject.fetch(config.sandbox)
-      path = config.sandbox.specifications_root + 'Reachability.podspec.json'
-      path.should.exist?
-    end
-
-    it 'supports the deprecated local key' do
-      params = { :local => fixture('integration/Reachability') }
-      dependency = Dependency.new('Reachability', params)
-      podfile_path = fixture('integration/Podfile')
-      @subject = ExternalSources.from_dependency(dependency, podfile_path)
       @subject.fetch(config.sandbox)
       path = config.sandbox.specifications_root + 'Reachability.podspec.json'
       path.should.exist?
@@ -32,7 +23,7 @@ module Pod
     it 'marks the Pod as local in the sandbox' do
       @subject.fetch(config.sandbox)
       config.sandbox.development_pods.should == {
-        'Reachability' => fixture('integration/Reachability').to_s,
+        'Reachability' => fixture('integration/Reachability/Reachability.podspec'),
       }
     end
 

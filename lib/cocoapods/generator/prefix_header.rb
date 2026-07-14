@@ -15,10 +15,10 @@ module Pod
       # Initialize a new instance
       #
       # @param  [Array<FileAccessor>] file_accessors
-      #         @see file_accessors
+      #         @see #file_accessors
       #
       # @param  [Platform] platform
-      #         @see platform
+      #         @see Header#platform
       #
       def initialize(file_accessors, platform)
         @file_accessors = file_accessors
@@ -54,18 +54,6 @@ module Pod
         end
 
         result
-      end
-
-      protected
-
-      # Generates the contents of the header according to the platform.
-      #
-      # @return [String]
-      #
-      def generate_platform_import_header
-        result =  "#ifdef __OBJC__\n"
-        result << super
-        result << "#endif\n"
       end
     end
   end

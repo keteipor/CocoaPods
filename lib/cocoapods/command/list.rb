@@ -20,17 +20,15 @@ module Pod
       def run
         update_if_necessary!
 
-        sets = SourcesManager.aggregate.all_sets
+        sets = config.sources_manager.aggregate.all_sets
         sets.each { |set| UI.pod(set, :name_and_version) }
         UI.puts "\n#{sets.count} pods were found"
       end
 
       def update_if_necessary!
-        if @update && config.verbose?
-          UI.section("\nUpdating Spec Repositories\n".yellow) do
-            Repo.new(ARGV.new(['update'])).run
-          end
-        end
+        UI.section("\nUpdating Spec Repositories\n".yellow) do
+          Repo::Update.new(CLAide::ARGV.new([])).run
+        end if @update
       end
 
       #-----------------------------------------------------------------------#

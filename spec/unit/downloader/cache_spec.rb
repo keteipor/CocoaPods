@@ -11,7 +11,7 @@ module Pod
 
       @stub_download = lambda do |&blk|
         original_download_source = Downloader.method(:download_source)
-        Downloader.define_singleton_method(:download_source) do |_name, target, _params, _head|
+        Downloader.define_singleton_method(:download_source) do |target, _params|
           FileUtils.mkdir_p target
           Dir.chdir(target) do
             result = blk.call
@@ -54,6 +54,11 @@ module Pod
         Platform.new(:ios, '6.0') => [@spec],
         Platform.new(:osx, '10.7') => [@spec],
       }
+    end
+
+    it 'ensure path for spec uniq' do
+      path = @cache.send :path_for_spec, @request
+      path.to_path.should.end_with? @request.slug + '.podspec.json'
     end
 
     describe 'when the download is not cached' do

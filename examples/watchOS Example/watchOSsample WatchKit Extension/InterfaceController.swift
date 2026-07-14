@@ -2,8 +2,8 @@
 //  InterfaceController.swift
 //  watchOSsample WatchKit Extension
 //
-//  Created by Boris Bügling on 13/06/15.
-//  Copyright © 2015 Boris Bügling. All rights reserved.
+//  Created by Ben Asher on 4/1/16.
+//  Copyright © 2016 Boris Bügling. All rights reserved.
 //
 
 import WatchKit
@@ -12,8 +12,8 @@ import Foundation
 
 class InterfaceController: WKInterfaceController {
 
-    override func awakeWithContext(context: AnyObject?) {
-        super.awakeWithContext(context)
+    override func awake(withContext context: Any?) {
+        super.awake(withContext: context)
         
         // Configure interface objects here.
     }
