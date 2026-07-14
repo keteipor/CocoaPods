@@ -23,11 +23,8 @@ module Pod
       #
       attr_reader :params
 
-      # @return [Boolean] Whether the download request is for a head download.
+      # Initialize a new instance
       #
-      attr_reader :head
-      alias_method :head?, :head
-
       # @param  [Specification,Nil] spec
       #         see {#spec}
       #
@@ -40,15 +37,11 @@ module Pod
       # @param  [Hash<Symbol,String>,Nil] params
       #         see {#params}
       #
-      # @param  [Boolean] head
-      #         see {#head}
-      #
-      def initialize(spec: nil, released: false, name: nil, params: false, head: false)
+      def initialize(spec: nil, released: false, name: nil, params: false)
         @released_pod = released
         @spec = spec
         @params = spec ? (spec.source && spec.source.dup) : params
         @name = spec ? spec.name : name
-        @head = head
 
         validate!
       end
@@ -59,11 +52,14 @@ module Pod
       # @param  [Hash<#to_s, #to_s>] params
       #         the download parameters of the pod being downloaded.
       #
+      # @param  [Specification] spec
+      #         the specification of the pod being downloaded.
+      #
       # @return [String] The slug used to store the files resulting from this
       #         download request.
       #
       def slug(name: self.name, params: self.params, spec: self.spec)
-        checksum = spec && spec.checksum &&  '-' << spec.checksum[0, 5]
+        checksum = spec && spec.checksum && '-' << spec.checksum[0, 5]
         if released_pod?
           "Release/#{name}/#{spec.version}#{checksum}"
         else

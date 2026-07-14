@@ -30,34 +30,18 @@ module Pod
         help! 'A valid regular expression is required.'
       end
 
-      # @return [Fixnum] the index of the chosen array item
-      #
-      def choose_from_array(array, message)
-        array.each_with_index do |item, index|
-          UI.puts "#{ index + 1 }: #{ item }"
-        end
-
-        UI.puts message
-
-        index = UI.gets.chomp.to_i - 1
-        if index < 0 || index > array.count - 1
-          raise Informative, "#{ index + 1 } is invalid [1-#{ array.count }]"
-        else
-          index
-        end
-      end
-
       # @param  [String] spec
       #         The name of the specification.
       #
-      # @param  [Bool] show_all
-      #         Whether the paths for all the versions should be returned or
-      #         only the one for the last version.
+      # @param  [Bool,String] version_filter
+      #         - If set to false, will return only the spec path for the latest version (the default).
+      #         - If set to true, will return a list of all paths of all the versions of that spec.
+      #         - If set to a String, will return only the spec path for the version specified by that string.
       #
       # @return [Pathname] the absolute path or paths of the given podspec
       #
-      def get_path_of_spec(spec, show_all = false)
-        sets = SourcesManager.search_by_name(spec)
+      def get_path_of_spec(spec, version_filter = false)
+        sets = config.sources_manager.search_by_name(spec)
 
         if sets.count == 1
           set = sets.first
@@ -65,15 +49,17 @@ module Pod
           set = sets.find { |s| s.name == spec }
         else
           names = sets.map(&:name) * ', '
-          raise Informative, "More than one spec found for '#{ spec }':\n#{ names }"
+          raise Informative, "More than one spec found for '#{spec}':\n#{names}"
         end
 
-        unless show_all
+        if version_filter.is_a? String
+          all_paths_from_set(set, version_filter).split(/\n/).first
+        elsif version_filter == true
+          all_paths_from_set(set)
+        else
           best_spec, spec_source = spec_and_source_from_set(set)
-          return pathname_from_spec(best_spec, spec_source)
+          pathname_from_spec(best_spec, spec_source)
         end
-
-        all_paths_from_set(set)
       end
 
       # @return [Pathname] the absolute path of the given spec and source
@@ -84,7 +70,7 @@ module Pod
 
       # @return [String] of spec paths one on each line
       #
-      def all_paths_from_set(set)
+      def all_paths_from_set(set, specific_version = nil)
         paths = ''
 
         sources = set.sources
@@ -92,11 +78,17 @@ module Pod
         sources.each do |source|
           versions = source.versions(set.name)
 
+          if specific_version
+            versions = versions.select { |v| v.version == specific_version }
+          end
+
           versions.each do |version|
             spec = source.specification(set.name, version)
-            paths += "#{ pathname_from_spec(spec, source) }\n"
+            paths += "#{pathname_from_spec(spec, source)}\n"
           end
         end
+
+        raise Informative, "Can't find spec for #{set.name}." if paths.empty?
 
         paths
       end
@@ -119,7 +111,7 @@ module Pod
         end
 
         if !best_source || !best_version
-          raise Informative, "Unable to locate highest known specification for `#{ set.name }'"
+          raise Informative, "Unable to locate highest known specification for `#{set.name}'"
         end
 
         [best_source.specification(set.name, best_version), best_source]

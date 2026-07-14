@@ -1,3 +1,5 @@
+require 'active_support/multibyte/unicode'
+
 module Pod
   # Stores the global configuration of CocoaPods.
   #
@@ -14,15 +16,32 @@ module Pod
     DEFAULTS = {
       :verbose             => false,
       :silent              => false,
-      :skip_repo_update    => false,
       :skip_download_cache => !ENV['COCOAPODS_SKIP_CACHE'].nil?,
 
-      :clean               => true,
-      :integrate_targets   => true,
       :new_version_message => ENV['COCOAPODS_SKIP_UPDATE_MESSAGE'].nil?,
 
       :cache_root          => Pathname.new(Dir.home) + 'Library/Caches/CocoaPods',
     }
+
+    # Applies the given changes to the config for the duration of the given
+    # block.
+    #
+    # @param [Hash<#to_sym,Object>] changes
+    #        the changes to merge temporarily with the current config
+    #
+    # @yield [] is called while the changes are applied
+    #
+    def with_changes(changes)
+      old = {}
+      changes.keys.each do |key|
+        key = key.to_sym
+        old[key] = send(key) if respond_to?(key)
+      end
+      configure_with(changes)
+      yield if block_given?
+    ensure
+      configure_with(old)
+    end
 
     public
 
@@ -30,18 +49,23 @@ module Pod
 
     # @!group UI
 
-    # @return [Bool] Whether CocoaPods should provide detailed output about the
+    # @return [Boolean] Whether CocoaPods should provide detailed output about the
     #         performed actions.
     #
     attr_accessor :verbose
     alias_method :verbose?, :verbose
 
-    # @return [Bool] Whether CocoaPods should produce not output.
+    # @return [Boolean] Whether CocoaPods should produce not output.
     #
     attr_accessor :silent
     alias_method :silent?, :silent
 
-    # @return [Bool] Whether a message should be printed when a new version of
+    # @return [Boolean] Whether CocoaPods is allowed to run as root.
+    #
+    attr_accessor :allow_root
+    alias_method :allow_root?, :allow_root
+
+    # @return [Boolean] Whether a message should be printed when a new version of
     #         CocoaPods is available.
     #
     attr_accessor :new_version_message
@@ -51,23 +75,7 @@ module Pod
 
     # @!group Installation
 
-    # @return [Bool] Whether the installer should clean after the installation.
-    #
-    attr_accessor :clean
-    alias_method :clean?, :clean
-
-    # @return [Bool] Whether CocoaPods should integrate a user target and build
-    #         the workspace or just create the Pods project.
-    #
-    attr_accessor :integrate_targets
-    alias_method :integrate_targets?, :integrate_targets
-
-    # @return [Bool] Whether the installer should skip the repos update.
-    #
-    attr_accessor :skip_repo_update
-    alias_method :skip_repo_update?, :skip_repo_update
-
-    # @return [Bool] Whether the installer should skip the download cache.
+    # @return [Boolean] Whether the installer should skip the download cache.
     #
     attr_accessor :skip_download_cache
     alias_method :skip_download_cache?, :skip_download_cache
@@ -97,10 +105,19 @@ module Pod
     def initialize(use_user_settings = true)
       configure_with(DEFAULTS)
 
+      unless ENV['CP_HOME_DIR'].nil?
+        @cache_root = home_dir + 'cache'
+      end
+
       if use_user_settings && user_settings_file.exist?
         require 'yaml'
-        user_settings = YAML.load_file(user_settings_file)
+        user_settings_contents = File.read(user_settings_file)
+        user_settings = YAML.safe_load(user_settings_contents)
         configure_with(user_settings)
+      end
+
+      unless ENV['CP_CACHE_DIR'].nil?
+        @cache_root = Pathname.new(ENV['CP_CACHE_DIR']).expand_path
       end
     end
 
@@ -124,27 +141,35 @@ module Pod
     # @return [Pathname] the directory where the CocoaPods sources are stored.
     #
     def repos_dir
-      @repos_dir ||= Pathname.new(ENV['CP_REPOS_DIR'] || '~/.cocoapods/repos').expand_path
+      @repos_dir ||= Pathname.new(ENV['CP_REPOS_DIR'] || (home_dir + 'repos')).expand_path
     end
 
     attr_writer :repos_dir
 
+    # @return [Source::Manager] the source manager for the spec repos in `repos_dir`
+    #
+    def sources_manager
+      return @sources_manager if @sources_manager && @sources_manager.repos_dir == repos_dir
+      @sources_manager = Source::Manager.new(repos_dir)
+    end
+
     # @return [Pathname] the directory where the CocoaPods templates are stored.
     #
     def templates_dir
-      @templates_dir ||= Pathname.new(ENV['CP_TEMPLATES_DIR'] || '~/.cocoapods/templates').expand_path
+      @templates_dir ||= Pathname.new(ENV['CP_TEMPLATES_DIR'] || (home_dir + 'templates')).expand_path
     end
 
     # @return [Pathname] the root of the CocoaPods installation where the
     #         Podfile is located.
     #
     def installation_root
-      current_path = Pathname.pwd
-      unless @installation_root
+      @installation_root ||= begin
+        current_dir = Pathname.new(Dir.pwd.unicode_normalize(:nfkc))
+        current_path = current_dir
         until current_path.root?
           if podfile_path_in_dir(current_path)
-            @installation_root = current_path
-            unless current_path == Pathname.pwd
+            installation_root = current_path
+            unless current_path == current_dir
               UI.puts("[in #{current_path}]")
             end
             break
@@ -152,9 +177,8 @@ module Pod
             current_path = current_path.parent
           end
         end
-        @installation_root ||= Pathname.pwd
+        installation_root || current_dir
       end
-      @installation_root
     end
 
     attr_writer :installation_root
@@ -234,7 +258,7 @@ module Pod
     # @return [Pathname] The file to use to cache the search data.
     #
     def search_index_file
-      cache_root + 'search_index.yaml'
+      cache_root + 'search_index.json'
     end
 
     private
@@ -259,6 +283,9 @@ module Pod
     def configure_with(values_by_key)
       return unless values_by_key
       values_by_key.each do |key, value|
+        if key.to_sym == :cache_root
+          value = Pathname.new(value).expand_path
+        end
         instance_variable_set("@#{key}", value)
       end
     end
@@ -270,6 +297,7 @@ module Pod
       'CocoaPods.podfile.yaml',
       'CocoaPods.podfile',
       'Podfile',
+      'Podfile.rb',
     ].freeze
 
     public
@@ -285,11 +313,23 @@ module Pod
     def podfile_path_in_dir(dir)
       PODFILE_NAMES.each do |filename|
         candidate = dir + filename
-        if candidate.exist?
+        if candidate.file?
           return candidate
         end
       end
       nil
+    end
+
+    # Excludes the given dir from Time Machine backups.
+    #
+    # @param  [Pathname] dir
+    #         The directory to exclude from Time Machine backups.
+    #
+    # @return [void]
+    #
+    def exclude_from_backup(dir)
+      return if Gem.win_platform?
+      system('tmutil', 'addexclusion', dir.to_s, %i(out err) => File::NULL)
     end
 
     public

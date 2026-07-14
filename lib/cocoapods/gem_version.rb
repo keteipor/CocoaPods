@@ -1,5 +1,5 @@
 module Pod
-  # The version of the cocoapods command line tool.
+  # The version of the CocoaPods command line tool.
   #
-  VERSION = '0.37.0.rc.2' unless defined? Pod::VERSION
+  VERSION = '1.16.2'.freeze unless defined? Pod::VERSION
 end

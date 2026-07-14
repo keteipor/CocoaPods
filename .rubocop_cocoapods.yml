@@ -1,61 +1,75 @@
-AllCops:
-  Include:
-    - ./Rakefile
-    - ./Gemfile
-    - ./*.gemspec
-  Exclude:
-    - ./spec/fixtures/**/*
-
-# At the moment not ready to be used
-# https://github.com/bbatsov/rubocop/issues/947
-Documentation:
-  Enabled: false
 
 #- CocoaPods -----------------------------------------------------------------#
 
+Metrics/ParameterLists:
+  CountKeywordArgs: false
+
+Style/SafeNavigation:
+  Enabled: false
+
 # We adopted raise instead of fail.
-SignalException:
+Style/SignalException:
   EnforcedStyle: only_raise
 
 # They are idiomatic
-AssignmentInCondition:
+Lint/AssignmentInCondition:
   Enabled: false
 
 # Allow backticks
-AsciiComments:
+Style/AsciiComments:
   Enabled: false
 
 # Indentation clarifies logic branches in implementations
-IfUnlessModifier:
+Style/IfUnlessModifier:
   Enabled: false
 
 # No enforced convention here.
-SingleLineBlockParams:
+Style/SingleLineBlockParams:
   Enabled: false
 
 # We only add the comment when needed.
-Encoding:
+Style/Encoding:
   Enabled: false
 
 # Having these make it easier to *not* forget to add one when adding a new
 # value and you can simply copy the previous line.
-TrailingComma:
+Style/TrailingCommaInArguments:
   EnforcedStyleForMultiline: comma
 
-Style/MultilineOperationIndentation:
+Style/TrailingCommaInArrayLiteral:
+  EnforcedStyleForMultiline: comma
+
+Layout/MultilineOperationIndentation:
   EnforcedStyle: indented
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Style/PercentLiteralDelimiters:
+  PreferredDelimiters:
+    default: ()
 
 # Clashes with CLAide Command#validate!
 GuardClause:
   Enabled: false
 
 # Not always desirable: lib/claide/command/plugins_helper.rb:12:15
-Next:
+Style/Next:
+  Enabled: false
+
+# Arbitrary max lengths for classes simply do not work and enabling this will
+# lead to a never ending stream of annoyance and changes.
+Metrics/BlockLength:
   Enabled: false
 
 # Arbitrary max lengths for classes simply do not work and enabling this will
 # lead to a never ending stream of annoyance and changes.
 Metrics/ClassLength:
+  Enabled: false
+
+# Arbitrary max lengths for modules simply do not work and enabling this will
+# lead to a never ending stream of annoyance and changes.
+Metrics/ModuleLength:
   Enabled: false
 
 # Arbitrary max lengths for methods simply do not work and enabling this will
@@ -77,18 +91,23 @@ Metrics/AbcSize:
 Metrics/CyclomaticComplexity:
   Enabled: false
 
-#- CocoaPods support for Ruby 1.8.7 ------------------------------------------#
-
-HashSyntax:
-  EnforcedStyle: hash_rockets
-
-Lambda:
+# It will be obvious which code is complex, Rubocop should only lint simple
+# rules for us.
+Metrics/PerceivedComplexity:
   Enabled: false
 
-DotPosition:
+#- CocoaPods support for Ruby 1.8.7 ------------------------------------------#
+
+Style/HashSyntax:
+  EnforcedStyle: hash_rockets
+
+Style/Lambda:
+  Enabled: false
+
+Layout/DotPosition:
   EnforcedStyle: trailing
 
-EachWithObject:
+Style/EachWithObject:
   Enabled: false
 
 Style/SpecialGlobalVars:
@@ -97,20 +116,19 @@ Style/SpecialGlobalVars:
 #- CocoaPods specs -----------------------------------------------------------#
 
 # Allow for `should.match /regexp/`.
-AmbiguousRegexpLiteral:
+Lint/AmbiguousRegexpLiteral:
   Exclude:
     - spec/**/*
 
 # Allow `object.should == object` syntax.
-Void:
+Lint/Void:
   Exclude:
     - spec/**/*
 
-ClassAndModuleChildren:
+Style/ClassAndModuleChildren:
   Exclude:
     - spec/**/*
 
-UselessComparison:
+Lint/BinaryOperatorWithIdenticalOperands:
   Exclude:
     - spec/**/*
-

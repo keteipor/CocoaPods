@@ -1,16 +1,18 @@
 # Do’s and Don’ts
 
-* **Search the solutions in the [troubleshooting guide](http://guides.cocoapods.org/using/troubleshooting.html).** Or any of the many other [guides](http://guides.cocoapods.org).
+* **Search the solutions in the [troubleshooting guide](https://guides.cocoapods.org/using/troubleshooting.html).** Or any of the many other [guides](https://guides.cocoapods.org).
 * **Search tickets before you file a new one.** Add to tickets if you have new information about the issue.
 * **Only file tickets about the CocoaPods tool itself.** This includes [CocoaPods](https://github.com/CocoaPods/CocoaPods/issues),
   [CocoaPods/Core](https://github.com/CocoaPods/Core/issues), and [Xcodeproj](https://github.com/CocoaPods/Xcodeproj/issues).
   If your question is regarding a library (to be) distributed through CocoaPods, refer to the [spec repo](https://github.com/CocoaPods/Specs).
-  If your question is “How do I […]”, then please ask on [StackOverflow](http://stackoverflow.com/search?q=CocoaPods) or our [mailing-list](http://groups.google.com/group/cocoapods).
+  If your question is “How do I […]”, then please ask on [StackOverflow](https://stackoverflow.com/search?q=CocoaPods) or our [mailing-list](https://groups.google.com/group/cocoapods).
 * **Keep tickets short but sweet.** Make sure you include all the context needed to solve the issue. Don't overdo it. Great tickets allow us to focus on solving problems instead of discussing them.
 * **Take care of your ticket.** When you spend time to report a ticket with care we'll enjoy fixing it for you.
+* **Use [GitHub-flavored Markdown](https://help.github.com/articles/markdown-basics/).** Especially put code blocks and console outputs in backticks (```` ``` ````). That increases the readability. Bonus points for applying the appropriate syntax highlighting. (Tip: Podfiles are written in a Ruby DSL.)
 * **Do not litter.** Don’t add +1’s _unless_ specifically asked for and don’t discuss offtopic issues.
+* **Spell the name of the project correctly.** It's CocoaPods. In upper camel case.
 
-## Bug reports
+## Bug Reports
 
 In short, since you are most likely a developer, provide a ticket that you _yourself_ would _like_ to receive.
 
@@ -47,22 +49,22 @@ add an [integration test](https://github.com/CocoaPods/cocoapods-integration-spe
 which doesn't require any ruby knowledge.
 
 
-## Feature requests
+## Feature Requests
 
 Please try to be precise about the proposed outcome of the feature and how it
 would related to existing features.
 
-From the [CocoaPods blog](http://blog.cocoapods.org/CocoaPods-0.28/):
+From the [CocoaPods blog](https://blog.cocoapods.org/CocoaPods-0.28/):
 
 > Fighting feature creep in CocoaPods is not easy. We hear about a lot of great ideas and many of them don't make the cut as they would not be useful for at least 80% of our users.
 
-Should you require a feature isn't suited for mainstream users, consider suggesting a [CocoaPods plugin](http://blog.cocoapods.org/CocoaPods-0.28/) instead.
+Should you require a feature isn't suited for mainstream users, consider suggesting a [CocoaPods plugin](https://blog.cocoapods.org/CocoaPods-0.28/) instead.
 
 
 ## Pull Requests
 
 We **love** pull requests and if a contribution is significant we tend to offer
-push access. We suggest you take a look at our [Contributing guide](http://guides.cocoapods.org/contributing/contribute-to-cocoapods.html) for info on development setup, and some of our best practices.
+push access. We suggest you take a look at our [Contributing guide](https://guides.cocoapods.org/contributing/contribute-to-cocoapods.html) for info on development setup, and some of our best practices.
 
 All contributions _will_ be licensed under the MIT license.
 
@@ -73,6 +75,9 @@ Code/comments should adhere to the following rules:
 * All changes require test coverage to ensure it does not break during refactor
   work. (There are a few exceptions to this, which can be recognised by there
   not being any coverage for similar code.)
+  * CocoaPods uses [bacon](https://github.com/chneukirchen/bacon) as a test runner.
+    To run all tests, use `bundle exec rake spec` in the root of the project. If
+    you want to run a specific test instead, use `bundle exec bacon spec/[folder]/[name]_spec.rb`
 * All enhancements and bug fixes need to be documented in the CHANGELOG.
 * When writing comments, use properly constructed sentences, including
   punctuation.
@@ -88,7 +93,7 @@ Code/comments should adhere to the following rules:
   install pods`).
 
 
-## [No Brown M&M’s](http://en.wikipedia.org/wiki/Van_Halen#Contract_riders)
+## [No Brown M&M’s](https://en.wikipedia.org/wiki/Van_Halen#Contract_riders)
 
 If you made it all the way to the end, bravo dear user, we love you. You can include
 this emoji in the top of your ticket to signal to us that you did in fact read this

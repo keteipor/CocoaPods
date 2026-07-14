@@ -1,3 +1,5 @@
+require 'bundler'
+
 # Bootstrap task
 #-----------------------------------------------------------------------------#
 
@@ -30,45 +32,32 @@ begin
     title 'Building the gem'
   end
 
+  task :check_submodules do
+    title 'Ensuring submodules are initialized'
+    submodule_help_msg = 'Run git submodule update --init --recursive to ensure submodules are initialized'
+    raise submodule_help_msg if `git submodule status`.split("\n").any? do |line|
+      line.start_with? '-'
+    end
+  end
+
   require 'bundler/gem_tasks'
+  require 'bundler/setup'
 
   # Pre release
   #-----------------------------------------------------------------------------#
 
   desc 'Prepares for a release'
   task :pre_release do
-    unless File.exist?('../Specs')
-      raise 'Ensure that the specs repo exits in the `../Specs` location'
-    end
   end
 
   # Post release
   #-----------------------------------------------------------------------------#
 
-  desc 'Updates the last know version of CocoaPods in the specs repo'
+  desc 'Updates the last known version of CocoaPods in the specs repo'
   task :post_release do
-    title 'Updating last known version in Specs repo'
-    specs_branch = 'master'
-    Dir.chdir('../Specs') do
-      puts Dir.pwd
-      sh "git checkout #{specs_branch}"
-      sh 'git pull'
-
-      yaml_file  = 'CocoaPods-version.yml'
-      unless File.exist?(yaml_file)
-        $stderr.puts red("[!] Unable to find #{yaml_file}!")
-        exit 1
-      end
-      require 'yaml'
-      cocoapods_version = YAML.load_file(yaml_file)
-      cocoapods_version['last'] = gem_version
-      File.open(yaml_file, 'w') do |f|
-        f.write(cocoapods_version.to_yaml)
-      end
-
-      sh "git commit #{yaml_file} -m 'CocoaPods release #{gem_version}'"
-      sh 'git push'
-    end
+    puts yellow("\n[!] The `post_release` task of CocoaPods no longer updates the master specs repo last known version. " \
+                  'This is because of how slow it has become which can break the release process. ' \
+                  "Please use the GitHub UI to update it to the #{gem_version} version.\n")
   end
 
   # Spec
@@ -127,41 +116,69 @@ begin
     # to be run separately.
     #
     task :all => 'fixture_tarballs:unpack' do
+      tasks = ENV.fetch('COCOAPODS_CI_TASKS') { 'ALL' }.upcase.split(/\s+/)
+      if %w(ALL SPECS EXAMPLES LINT).&(tasks).empty?
+        raise "Unknown tasks #{tasks} -- supported options for COCOAPODS_CI_TASKS are " \
+              'ALL, SPECS, EXAMPLES, LINT'
+      end
+      specs = %w(ALL SPECS).&(tasks).any?
+      examples = %w(ALL EXAMPLES).&(tasks).any?
+      lint = %w(ALL LINT).&(tasks).any?
+
+      # Forcing colored to be included on String before Term::ANSIColor, so that Inch will work correctly.
+      require 'colored2'
       ENV['GENERATE_COVERAGE'] = 'true'
       puts "\033[0;32mUsing #{`ruby --version`}\033[0m"
 
-      title 'Running the specs'
-      sh "bundle exec bacon #{specs('**/*')}"
+      if specs
+        title 'Running the specs'
+        Bundler.with_unbundled_env do
+          sh "bundle exec bacon #{specs('**/*')}"
+        end
 
-      title 'Running Integration tests'
-      sh 'bundle exec bacon spec/integration.rb'
+        title 'Running Integration tests'
+        Bundler.with_unbundled_env do
+          sh 'bundle exec bacon spec/integration.rb'
+        end
+      end
 
-      title 'Running examples'
-      Rake::Task['examples:build'].invoke
+      if examples && ENV['SKIP_EXAMPLES'].nil?
+        title 'Running examples'
+        Rake::Task['examples:build'].invoke
+      end
 
-      title 'Running RuboCop'
-      Rake::Task['rubocop'].invoke
+      if lint
+        title 'Running RuboCop'
+        Rake::Task['rubocop'].invoke
+
+        title 'Running Inch'
+        Rake::Task['inch'].invoke
+      end
     end
 
     namespace :fixture_tarballs do
       task :default => :unpack
 
+      tarballs = FileList['spec/fixtures/**/*.tar.gz']
+
       desc 'Check fixture tarballs for pending changes'
       task :check_for_pending_changes do
-        repo_dir = 'spec/fixtures/banana-lib'
-        if Dir.exist?(repo_dir) && !Dir.chdir(repo_dir) { `git status --porcelain`.empty? }
-          puts red("[!] There are unsaved changes in '#{repo_dir}'. " \
-            'Please commit everything and run `rake spec:fixture_tarballs:rebuild`.')
-          exit 1
+        tarballs.each do |tarball|
+          repo_dir = "#{File.dirname(tarball)}/#{File.basename(tarball, '.tar.gz')}"
+          if Dir.exist?(repo_dir) && Dir.exist?("#{repo_dir}/.git") && !Dir.chdir(repo_dir) { `git status --porcelain`.empty? }
+            puts red("[!] There are unsaved changes in '#{repo_dir}'. " \
+              'Please commit everything and run `rake spec:fixture_tarballs:rebuild`.')
+            exit 1
+          end
         end
       end
 
       desc 'Rebuild all the fixture tarballs'
       task :rebuild => :check_for_pending_changes do
-        tarballs = FileList['spec/fixtures/**/*.tar.gz']
         tarballs.each do |tarball|
           basename = File.basename(tarball)
-          sh "cd #{File.dirname(tarball)} && rm #{basename} && env COPYFILE_DISABLE=1 tar -zcf #{basename} #{basename[0..-8]}"
+          untarred_basename = File.basename(tarball, '.tar.gz')
+          sh "cd #{File.dirname(tarball)} rm #{basename} && env COPYFILE_DISABLE=1 tar -zcf #{basename} #{untarred_basename}"
         end
       end
 
@@ -173,11 +190,10 @@ begin
           exit 1 unless args[:force]
           puts 'Continue anyway because `force` was applied.'
         end
-        tarballs = FileList['spec/fixtures/**/*.tar.gz']
         tarballs.each do |tarball|
           basename = File.basename(tarball)
           Dir.chdir(File.dirname(tarball)) do
-            sh "rm -rf #{basename[0..-8]} && tar zxf #{basename}"
+            sh "rm -rf #{basename[0..-8]} ; tar zxf #{basename}"
           end
         end
       end
@@ -190,31 +206,23 @@ begin
 
     desc 'Rebuilds integration fixtures'
     task :rebuild_integration_fixtures do
-      if `which hg` && !$?.success?
+      unless system('which hg')
         puts red('[!] Mercurial (`hg`) must be installed to rebuild the integration fixtures.')
         exit 1
       end
       title 'Running Integration tests'
-      sh 'rm -rf spec/cocoapods-integration-specs/tmp'
+      FileUtils.rm_rf 'tmp'
       title 'Building all the fixtures'
-      puts `bundle exec bacon spec/integration.rb`
-
+      sh('bundle exec bacon spec/integration.rb') {}
       title 'Storing fixtures'
       # Copy the files to the files produced by the specs to the after folders
-      FileList['tmp/*'].each do |source|
-        destination = "spec/cocoapods-integration-specs/#{source.gsub('tmp/', '')}/after"
+      FileList['tmp/*/transformed'].each do |source|
+        name = source.match(%r{^tmp/(.+)/transformed$})[1]
+        destination = "spec/cocoapods-integration-specs/#{name}/after"
         if File.exist?(destination)
-          sh "rm -rf #{destination}"
-          sh "mv #{source} #{destination}"
+          FileUtils.rm_rf destination
+          FileUtils.mv source, destination
         end
-      end
-
-      # Remove files not used for the comparison
-      # To keep the git diff clean
-      files_to_delete = FileList['spec/cocoapods-integration-specs/*/after/{Podfile,*.podspec,**/*.xcodeproj,PodTest-hg-source}', '.DS_Store']
-      files_to_delete.exclude('/spec/cocoapods-integration-specs/init_single_platform/**/*.*')
-      files_to_delete.each do |file_to_delete|
-        sh "rm -rf #{file_to_delete}"
       end
 
       puts
@@ -231,49 +239,86 @@ begin
   namespace :examples do
     desc 'Open all example workspaces in Xcode, which recreates the schemes.'
     task :recreate_workspace_schemes do
-      examples.each do |example|
+      Dir['examples/*'].each do |example|
         Dir.chdir(example.to_s) do
           # TODO: we need to open the workspace in Xcode at least once, otherwise it might not contain schemes.
           # The schemes do not seem to survive a SCM round-trip.
-          sh "open '#{example.basename}.xcworkspace'"
+          sh 'open *.xcworkspace'
           sleep 5
         end
       end
     end
 
-    desc 'Build all examples'
-    task :build do
-      Bundler.require 'xcodeproj', :development
-      Dir['examples/*'].each do |dir|
+    desc 'pod install all examples'
+    task :pod_install do
+      Dir['examples/*'].sort.each do |dir|
+        next unless File.directory?(dir)
         Dir.chdir(dir) do
           puts "Example: #{dir}"
 
           puts '    Installing Pods'
           # pod_command = ENV['FROM_GEM'] ? 'sandbox-pod' : 'bundle exec ../../bin/sandbox-pod'
           # TODO: The sandbox is blocking local git repos making bundler crash
-          pod_command = ENV['FROM_GEM'] ? 'sandbox-pod' : 'bundle exec ../../bin/pod'
+          pod_command = ENV['FROM_GEM'] ? 'sandbox-pod' : 'bundle exec pod'
 
           execute_command 'rm -rf Pods'
-          execute_command "#{pod_command} install --verbose --no-repo-update"
+          execute_command "#{pod_command} install --verbose"
+        end
+      end
+    end
+
+    desc 'Build all examples'
+    task :build, [:pattern] do |_t, args|
+      Bundler.require 'xcodeproj', :development
+      pattern = if (p = args[:pattern])
+                  /#{p}/
+                else
+                  /.*/
+                end
+      Dir['examples/*'].sort.each do |dir|
+        next unless File.directory?(dir)
+        unless dir.match?(pattern)
+          puts "Skipping #{dir}"
+          next
+        end
+        Dir.chdir(dir) do
+          puts "Example: #{dir}"
+
+          puts '    Installing Pods'
+          # pod_command = ENV['FROM_GEM'] ? 'sandbox-pod' : 'bundle exec ../../bin/sandbox-pod'
+          # TODO: The sandbox is blocking local git repos making bundler crash
+          pod_command = ENV['FROM_GEM'] ? 'sandbox-pod' : 'bundle exec pod'
+
+          execute_command 'rm -rf Pods'
+          execute_command "#{pod_command} install --verbose"
 
           workspace_path = 'Examples.xcworkspace'
           workspace = Xcodeproj::Workspace.new_from_xcworkspace(workspace_path)
           workspace.schemes.each do |scheme_name, project_path|
             next if scheme_name == 'Pods'
-            puts "    Building scheme: #{scheme_name}"
+            next if project_path.end_with? 'Pods.xcodeproj'
+            build_action = scheme_name.start_with?('Test') ? 'test' : 'build'
+            puts "    #{build_action.capitalize}ing scheme: #{scheme_name}"
 
             project = Xcodeproj::Project.open(project_path)
             target = project.targets.first
+            scheme_target = project.targets.find { |t| t.name == scheme_name }
+            target = scheme_target unless scheme_target.nil?
 
-            case target
+            xcodebuild_args = %W(
+              xcodebuild -workspace #{workspace_path} -scheme #{scheme_name} clean #{build_action}
+            )
+
+            case platform = target.platform_name
             when :osx
-              execute_command "xcodebuild -workspace '#{workspace_path}' -scheme '#{scheme_name}' clean build"
+              execute_command(*xcodebuild_args)
             when :ios
-              xcode_version = `xcodebuild -version`.scan(/Xcode (.*)\n/).first.first
-              major_version = xcode_version.split('.').first.to_i
-              # Specifically build against the simulator SDK so we don't have to deal with code signing.
-              simulator_name = major_version > 5 ? 'iPhone 6' : 'iPhone Retina (4-inch)'
-              execute_command "xcodebuild -workspace '#{workspace_path}' -scheme '#{scheme_name}' clean build ONLY_ACTIVE_ARCH=NO -destination 'platform=iOS Simulator,name=#{simulator_name}"
+              xcodebuild_args.concat ['ONLY_ACTIVE_ARCH=NO', 'CODE_SIGNING_ALLOWED=NO', '-destination', 'platform=iOS Simulator,name=iPhone 16 Pro']
+              execute_command(*xcodebuild_args)
+            when :watchos
+              xcodebuild_args.concat ['ONLY_ACTIVE_ARCH=NO', 'CODE_SIGNING_ALLOWED=NO', '-destination', 'platform=watchOS Simulator,name=Apple Watch Series 5 - 40mm']
+            else
+              raise "Unknown platform #{platform}"
             end
           end
         end
@@ -284,7 +329,7 @@ begin
   #-----------------------------------------------------------------------------#
 
   desc 'Run all specs'
-  task :spec => 'spec:all'
+  task :spec => [:check_submodules, 'spec:all']
 
   task :default => :spec
 
@@ -293,6 +338,20 @@ begin
   desc 'Check code against RuboCop rules'
   task :rubocop do
     sh 'bundle exec rubocop lib spec Rakefile'
+  end
+
+  #-- Inch -------------------------------------------------------------------#
+
+  require 'inch_by_inch/rake_task'
+  InchByInch::RakeTask.new
+
+  #-- Danger -----------------------------------------------------------------#
+
+  desc 'Run Danger to check PRs'
+  task :danger do
+    sh 'bundle exec danger' do |ok, _status|
+      raise 'Danger has found errors. Please refer to your PR for more information.' unless ok
+    end
   end
 
 rescue LoadError, NameError => e
@@ -310,11 +369,12 @@ end
 # Helpers
 #-----------------------------------------------------------------------------#
 
-def execute_command(command)
+def execute_command(*command)
   if ENV['VERBOSE']
-    sh(command)
+    sh(*command)
   else
-    output = `#{command} 2>&1`
+    args = command.size == 1 ? "#{command.first} 2>&1" : [*command, :err => %i(child out)]
+    output = IO.popen(args, &:read)
     raise output unless $?.success?
   end
 end
@@ -333,6 +393,14 @@ def title(title)
   puts
 end
 
+def green(string)
+  "\033[0;32m#{string}\e[0m"
+end
+
 def red(string)
   "\033[0;31m#{string}\e[0m"
+end
+
+def yellow(string)
+  "\033[0;33m#{string}\e[0m"
 end
